@@ -1,6 +1,6 @@
 {
   "display_name": "Context & TPS Monitor",
-  "description": "Real-time Context window watermark (1.05M physical / 256k compaction), cache hit rate, per-model API cost & cache savings (>200k tier), TTFT, and E2E / Decode TPS monitor.",
+  "description": "Context window, prompt cache, cost at API list prices, and speed (TTFT, tokens/s) for the current Antigravity conversation.",
   "command": "node",
   "args": ["--watch", "server.mjs"],
   "restart_policy": "always",

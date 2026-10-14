@@ -19,7 +19,7 @@ agy-pulse is a native [Antigravity sidecar](#how-it-works) that shows, for the c
 
 It runs inside Antigravity's auxiliary pane, has no dependencies beyond Node.js, and reads only local data.
 
-<p align="center"><img src="docs/screenshot-en.png" width="640" alt="agy-pulse panel showing context watermark, speed, cache hit rate, per-model cost, trend chart, and per-turn table" /></p>
+<p align="center"><img src="docs/screenshot-en.png" width="640" alt="agy-pulse panel showing distance to auto-compaction, speed, cache hit rate, per-model cost, trend chart, and per-turn table" /></p>
 
 <sub>Screenshot rendered from the synthetic fixture in <code>test/fixtures/demo</code>.</sub>
 
@@ -74,8 +74,8 @@ When both are available, RPC values win and the transcript fills gaps.
 | Metric | Definition |
 | :--- | :--- |
 | Context used | Input tokens of the latest turn (cached + uncached). |
-| Physical window | 1,048,576 tokens. The 200k and 256k ticks mark the price tier and the compaction threshold. |
-| Compaction watermark | Context used ÷ compaction limit (RPC value, else 256,000). Green below 60%, amber to 85%, red above. |
+| Auto-compaction limit | Context used ÷ compaction limit (RPC value, else 256,000). Green below 60%, amber to 85%, red above. The 200k tick marks where long-context prices start. |
+| Model window | Context used ÷ 1,048,576 tokens, the model's full window. |
 | Cache hit rate | Cached input ÷ total input, for the latest turn and for the session. |
 | E2E TPS | Output tokens ÷ (TTFT + streaming time). This is the speed you perceive. |
 | Decode TPS | Output tokens ÷ streaming time. Turns with less than 0.15 s of streaming are skipped as buffered. |
