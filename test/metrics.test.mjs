@@ -17,7 +17,8 @@ import {
 
 describe('Pricing & Cost Engine', () => {
   it('resolves model names to accurate pricing profiles in auto mode', () => {
-    assert.equal(resolvePricingProfileKey('Gemini 4 Argon (High)', 'auto'), 'gemini_3_1_pro');
+    assert.equal(resolvePricingProfileKey('Gemini 4 Argon (High)', 'auto'), 'gemini_4_argon');
+    assert.equal(resolvePricingProfileKey('gemini-4-argon', 'auto'), 'gemini_4_argon');
     assert.equal(resolvePricingProfileKey('Gemini 3.1 Pro', 'auto'), 'gemini_3_1_pro');
     assert.equal(resolvePricingProfileKey('Gemini 2.5 Pro', 'auto'), 'gemini_pro');
     assert.equal(resolvePricingProfileKey('Gemini 3 Flash', 'auto'), 'gemini_flash');
@@ -58,6 +59,31 @@ describe('Pricing & Cost Engine', () => {
     assert.equal(highRes.isHighTier, true);
     // inUncached: 0.05M * $4 = $0.20; inCached: 0.20M * $0.4 = $0.08; out: 0.01M * $18 = $0.18 -> total $0.46
     assert.ok(Math.abs(highRes.costUsd - 0.46) < 1e-9);
+  });
+
+  it('bills Gemini 4 Argon and Claude 4.6+ without a 200k tier, and Argon by the date of each turn', () => {
+    const turn = (createdAt) => ({
+      inUncached: 50_000,
+      inCached: 200_000,
+      cacheWriteTokens: 0,
+      totalInput: 250_000,
+      outTokens: 10_000,
+      thinkTokens: 0,
+      respTokens: 10_000,
+      createdAt,
+    });
+    const intro = computeTurnCost(turn('2026-11-30T23:59:59Z'), PRICING_PROFILES.gemini_4_argon);
+    assert.equal(intro.isHighTier, false);
+    // 0.05M * $2 + 0.20M * $0.1 + 0.01M * $10 = $0.10 + $0.02 + $0.10
+    assert.ok(Math.abs(intro.costUsd - 0.22) < 1e-9);
+    const standard = computeTurnCost(turn('2026-12-01T00:00:00Z'), PRICING_PROFILES.gemini_4_argon);
+    // 0.05M * $4 + 0.20M * $0.2 + 0.01M * $20 = $0.20 + $0.04 + $0.20
+    assert.ok(Math.abs(standard.costUsd - 0.44) < 1e-9);
+
+    const sonnet = computeTurnCost(turn(null), PRICING_PROFILES.claude_sonnet);
+    assert.equal(sonnet.isHighTier, false);
+    // 0.05M * $3 + 0.20M * $0.3 + 0.01M * $15 = $0.15 + $0.06 + $0.15
+    assert.ok(Math.abs(sonnet.costUsd - 0.36) < 1e-9);
   });
 
   it('parses duration strings in ms and s', () => {
@@ -168,7 +194,9 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
     assert.equal(metrics.summary.contextUsed, 225000);
     assert.equal(metrics.summary.maxContext, 1048576);
     assert.equal(metrics.summary.compactionMaxContext, 256000);
-    assert.equal(metrics.summary.highTierTurnCount, 1);
+    // The 225k turn runs on Claude Sonnet 4.6, which has no long-context tier.
+    assert.equal(metrics.summary.highTierTurnCount, 0);
+    assert.equal(metrics.summary.priceTierThreshold, 0);
     assert.equal(metrics.modelStats.length, 2);
   });
 

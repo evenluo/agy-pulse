@@ -13,8 +13,8 @@
 
 agy-pulse is a native [Antigravity sidecar](#how-it-works) that shows, for the conversation you are in:
 
-- **How close you are to auto-compaction.** Antigravity compacts context around 256k tokens, well below the model's 1M window. agy-pulse shows both limits and the 200k line above which long-context API prices apply.
-- **What the session would cost at API list prices**, per model, including the >200k price tier and the amount prompt caching saved.
+- **How close you are to auto-compaction.** Antigravity compacts context around 256k tokens, well below the model's 1M window. agy-pulse shows both limits and, for models priced by prompt length, the 200k line above which long-context prices apply.
+- **What the session would cost at API list prices**, per model, including long-context and dated price changes, and the amount prompt caching saved.
 - **Where the time goes.** Time to first token (TTFT), end-to-end TPS, and pure decode TPS, with thinking tokens split from visible output.
 
 It runs inside Antigravity's auxiliary pane, has no dependencies beyond Node.js, and reads only local data.
@@ -74,15 +74,15 @@ When both are available, RPC values win and the transcript fills gaps.
 | Metric | Definition |
 | :--- | :--- |
 | Context used | Input tokens of the latest turn (cached + uncached). |
-| Auto-compaction limit | Context used ÷ compaction limit (RPC value, else 256,000). Green below 60%, amber to 85%, red above. The 200k tick marks where long-context prices start. |
+| Auto-compaction limit | Context used ÷ compaction limit (RPC value, else 256,000). Green below 60%, amber to 85%, red above. The 200k tick marks where long-context prices start; it shows only when the current model has such a tier (Gemini 3.1 Pro, Gemini 2.5 Pro). |
 | Model window | Context used ÷ 1,048,576 tokens, the model's full window. |
 | Cache hit rate | Cached input ÷ total input, for the latest turn and for the session. |
 | E2E TPS | Output tokens ÷ (TTFT + streaming time). This is the speed you perceive. |
 | Decode TPS | Output tokens ÷ streaming time. Turns with less than 0.15 s of streaming are skipped as buffered. |
 | Session averages | Total tokens ÷ total seconds over valid turns, so short turns do not skew the result. Interrupted turns (followed by `ERROR_MESSAGE`) are excluded. |
-| Cost | Per turn, with that turn's model: uncached input, cached input, cache writes, and output at list price. A turn whose input exceeds 200k uses the high tier. "Saved by cache" compares against all input billed as uncached. |
+| Cost | Per turn, with that turn's model: uncached input, cached input, cache writes, and output at list price. For Gemini 3.1 Pro and 2.5 Pro, a turn whose input exceeds 200k uses the high tier. Gemini 4 Argon and Claude 4.6+ have no such tier; Argon's price doubles for turns from 2026-12-01. "Saved by cache" compares against all input billed as uncached. |
 
-Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs). Model names map to a profile by keyword (`opus`, `sonnet`/`claude`, `flash`, `2.5`, otherwise Gemini 3.x Pro). You can override the mapping from the pricing selector.
+Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs). Model names map to a profile by keyword (`opus`, `sonnet`/`claude`, `flash`, `argon`/`gemini 4`, `2.5`, otherwise Gemini 3.1 Pro). You can override the mapping from the pricing selector.
 
 ## Configuration
 

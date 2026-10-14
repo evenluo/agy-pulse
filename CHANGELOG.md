@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Fixed
 
+- Gemini 4 Argon has its own price ($2 / $0.10 cached / $10 per 1M tokens, doubling for turns from 2026-12-01) instead of Gemini 3.1 Pro's, and no 200k tier.
+- Claude Sonnet and Opus 4.6+ no longer get a >200k surcharge; Anthropic bills their full 1M window at the standard price.
+- The 200k tick and legend show only when the current model's price has a long-context tier.
 - Installer no longer overwrites `config.json` with an empty object when the file is not valid JSON; it now stops with an error and leaves the file unchanged.
 - Installer writes `config.json` with an atomic rename instead of a copy, and writes through a symlinked `config.json` instead of replacing the link.
 - Installer keeps only one registration of the sidecar enabled, including plugin directories with another name (for example one created by `agy plugin install`); `--status` and `--uninstall` cover them too.

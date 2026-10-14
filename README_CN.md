@@ -13,8 +13,8 @@
 
 agy-pulse 是一个原生 [Antigravity Sidecar](#工作原理)。它针对当前对话显示三类信息：
 
-- **离自动压缩还有多远。** Antigravity 在约 256k Token 时压缩上下文，远低于模型的 1M 窗口。agy-pulse 同时显示这两条线，以及开始按长上下文价格计费的 200k 线。
-- **按 API 标价折算的会话费用。** 按模型分别计算，包含 >200k 阶梯价，并显示 Prompt Cache 节省的金额。
+- **离自动压缩还有多远。** Antigravity 在约 256k Token 时压缩上下文，远低于模型的 1M 窗口。agy-pulse 同时显示这两条线；对按提示词长度分档计价的模型，还显示开始按长上下文价格计费的 200k 线。
+- **按 API 标价折算的会话费用。** 按模型分别计算，包含长上下文阶梯价和按日期生效的调价，并显示 Prompt Cache 节省的金额。
 - **时间花在哪里。** 首字延迟（TTFT）、端到端 TPS 和纯解码 TPS，并把 Thinking Token 与可见输出分开。
 
 它运行在 Antigravity 右侧辅助栏中，除 Node.js 外没有任何依赖，只读取本机数据。
@@ -74,15 +74,15 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 | 指标 | 定义 |
 | :--- | :--- |
 | Context 占用 | 最新一轮的输入 Token（缓存 + 未缓存）。 |
-| 自动压缩阈值 | Context 占用 ÷ 压缩阈值（优先用 RPC 值，否则 256,000）。低于 60% 为绿色，60%–85% 为黄色，高于 85% 为红色。200k 刻度标记长上下文计价的起点。 |
+| 自动压缩阈值 | Context 占用 ÷ 压缩阈值（优先用 RPC 值，否则 256,000）。低于 60% 为绿色，60%–85% 为黄色，高于 85% 为红色。200k 刻度标记长上下文计价的起点，只在当前模型有该阶梯时显示（Gemini 3.1 Pro、Gemini 2.5 Pro）。 |
 | 模型窗口 | Context 占用 ÷ 1,048,576 Token，即模型的完整窗口。 |
 | 缓存命中率 | 缓存输入 ÷ 总输入，分最新一轮和整个会话。 |
 | E2E TPS | 输出 Token ÷（TTFT + 流式耗时），即体感速度。 |
 | Decode TPS | 输出 Token ÷ 流式耗时。流式耗时低于 0.15 秒的轮次视为整包缓冲，不参与计算。 |
 | 会话均值 | 有效轮次的总 Token ÷ 总秒数，避免短轮次拉偏结果。中断轮次（后接 `ERROR_MESSAGE`）不参与计算。 |
-| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。单轮输入超过 200k 时使用高阶梯价。“缓存节省”与全部输入按未缓存计价的结果比较。 |
+| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。Gemini 3.1 Pro 和 2.5 Pro 单轮输入超过 200k 时使用高阶梯价。Gemini 4 Argon 和 Claude 4.6+ 没有该阶梯；Argon 从 2026-12-01 起的轮次按翻倍后的价格计算。“缓存节省”与全部输入按未缓存计价的结果比较。 |
 
-价格表位于 [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs)。模型名按关键字映射到价格方案（`opus`、`sonnet`/`claude`、`flash`、`2.5`，其余按 Gemini 3.x Pro）。可以在计价下拉框中手动指定。
+价格表位于 [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs)。模型名按关键字映射到价格方案（`opus`、`sonnet`/`claude`、`flash`、`argon`/`gemini 4`、`2.5`，其余按 Gemini 3.1 Pro）。可以在计价下拉框中手动指定。
 
 ## 配置
 
