@@ -17,13 +17,30 @@ import {
 
 describe('Pricing & Cost Engine', () => {
   it('resolves model names to accurate pricing profiles in auto mode', () => {
-    assert.equal(resolvePricingProfileKey('Gemini 4 Argon (High)', 'auto'), 'gemini_4_argon');
-    assert.equal(resolvePricingProfileKey('gemini-4-argon', 'auto'), 'gemini_4_argon');
-    assert.equal(resolvePricingProfileKey('Gemini 3.1 Pro', 'auto'), 'gemini_3_1_pro');
-    assert.equal(resolvePricingProfileKey('Gemini 2.5 Pro', 'auto'), 'gemini_pro');
-    assert.equal(resolvePricingProfileKey('Gemini 3 Flash', 'auto'), 'gemini_flash');
-    assert.equal(resolvePricingProfileKey('Claude Sonnet 4.6', 'auto'), 'claude_sonnet');
-    assert.equal(resolvePricingProfileKey('Claude Opus 4.6', 'auto'), 'claude_opus');
+    const cases = {
+      'Gemini 4 Argon (High)': 'gemini_4_argon',
+      'gemini-4-argon': 'gemini_4_argon',
+      'Gemini 3.1 Pro (High)': 'gemini_3_1_pro',
+      'Gemini 2.5 Pro': 'gemini_pro',
+      'Gemini 3.8 Flash': 'gemini_3_6_flash',
+      'Gemini 3.7 Flash (High)': 'gemini_3_6_flash',
+      'gemini-3.6-flash': 'gemini_3_6_flash',
+      'Gemini 3.6 Flash gemini-3.6-flash-001': 'gemini_3_6_flash',
+      'gemini-3.8-flash-20261001': 'gemini_3_6_flash',
+      'gemini-3-flash-preview': 'gemini_3_flash',
+      'Gemini 2.5 Flash': 'gemini_flash',
+      'Claude Opus 5.5': 'claude_opus_5_5',
+      'claude-opus-5-5': 'claude_opus_5_5',
+      'Claude Opus 5.5 (Thinking)': 'claude_opus_5_5',
+      'Claude Opus 4.6 (Thinking)': 'claude_opus',
+      'Claude Sonnet 5.5 (Thinking)': 'claude_sonnet_5_5',
+      'claude-sonnet-5-5-20261001': 'claude_sonnet_5_5',
+      'Claude Sonnet 4.6 (Thinking)': 'claude_sonnet',
+      'claude-sonnet-4-6': 'claude_sonnet',
+    };
+    for (const [name, key] of Object.entries(cases)) {
+      assert.equal(resolvePricingProfileKey(name, 'auto'), key, name);
+    }
     assert.equal(resolvePricingProfileKey('Claude Opus 4.6', 'gemini_flash'), 'gemini_flash');
   });
 

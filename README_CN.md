@@ -80,9 +80,9 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 | E2E TPS | 输出 Token ÷（TTFT + 流式耗时），即体感速度。 |
 | Decode TPS | 输出 Token ÷ 流式耗时。流式耗时低于 0.15 秒的轮次视为整包缓冲，不参与计算。 |
 | 会话均值 | 有效轮次的总 Token ÷ 总秒数，避免短轮次拉偏结果。中断轮次（后接 `ERROR_MESSAGE`）不参与计算。 |
-| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。Gemini 3.1 Pro 和 2.5 Pro 单轮输入超过 200k 时使用高阶梯价。Gemini 4 Argon 和 Claude 4.6 及以后的模型没有该阶梯；Argon 从 2026-12-01 起的轮次按翻倍后的价格计算。“缓存节省”与全部输入按未缓存计价的结果比较。 |
+| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。Gemini 3.1 Pro 和 2.5 Pro 单轮输入超过 200k 时使用高阶梯价。Gemini 4 Argon 和 Claude 4.6 及以后的模型没有该阶梯；Argon 从 2026-12-01 起、Gemini 3.6–3.8 Flash 从 2027-01-01 起的轮次按翻倍后的价格计算。“缓存节省”与全部输入按未缓存计价的结果比较。 |
 
-价格表位于 [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs)。模型名按关键字映射到价格方案（`opus`、`sonnet`/`claude`、`flash`、`argon`/`gemini 4`、`2.5`，其余按 Gemini 3.1 Pro）。可以在计价下拉框中手动指定。
+价格表位于 [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs)。模型名按系列和版本映射到价格方案（例如 `Claude Sonnet 5.5 (Thinking)`、`claude-opus-4-6`、`gemini-3.8-flash`）。未知的 Claude 版本使用 Sonnet 4.6 或 Opus 4.6–5 方案，未知的 Flash 版本使用 Gemini 2.5 Flash 方案，其他名称按 Gemini 3.1 Pro 计价。可以在计价下拉框中手动指定。
 
 ## 配置
 
@@ -106,6 +106,8 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 - 费用是按公开标价的估算，不反映你的 Antigravity 套餐、配额或协议价，厂商调价后会过时。
 - 没有 RPC 时，TTFT 和 Thinking/正文拆分不可用，耗时由 Transcript 步骤时间戳估算。
 - Transcript 格式和 RPC 属于 Antigravity 内部实现，宿主更新可能改变它们。
+- GPT-OSS 120B 没有厂商标价，按 Gemini 3.1 Pro 计价。Antigravity 将在 2026-11-02 移除该模型。
+- Google 没有公布 Gemini 3.7 Flash 的价格，按 3.6 和 3.8 Flash 的价格计算。
 - CI 覆盖 Linux 和 macOS，未在 Windows 上测试。
 
 ## 排障
