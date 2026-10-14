@@ -39,7 +39,7 @@ Add or update tests for behaviour changes. Pure logic belongs in `metrics.mjs` o
 
 ## Updating prices
 
-1. Edit `PRICING_PROFILES` in `sidecars/context-monitor/pricing.mjs`. Cite the vendor's pricing page in the pull request.
+1. Edit `PRICING_PROFILES` in `sidecars/context-monitor/pricing.mjs`. Cite the vendor's pricing page in the pull request. Set `tierThreshold` and `high` only when the vendor prices by prompt length, and use `priceChange` for an announced price change on a date.
 2. If you add a profile, add its keyword rule to `resolvePricingProfileKey`, an `<option>` to `#pricingSelect` in `ui/index.html`, and a test case in `test/metrics.test.mjs`.
 3. Add a line to `CHANGELOG.md`.
 

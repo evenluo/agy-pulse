@@ -587,6 +587,7 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
       pricingProfileKey,
       pricingProfileLabel: pricingProfile.shortLabel,
       pricingProfileFullLabel: pricingProfile.label,
+      priceTierThreshold: pricingProfile.tierThreshold || 0,
       lastTurnCostUsd: lastCtxTurn?.costUsd || 0,
       totalInUncachedCostUsd,
       totalInCachedCostUsd,

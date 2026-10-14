@@ -130,6 +130,7 @@
     .pt-1 { padding-top: 4px; }
     .pt-2 { padding-top: 8px; }
     .mr-1 { margin-right: 4px; }
+    .ml-auto { margin-left: auto; }
     .text-\[10px\] { font-size: 10px; }
     .text-\[11px\] { font-size: 11px; }
     .text-xs { font-size: 12px; }
@@ -188,11 +189,12 @@
       <select id="convSelect" data-i18n-title="convSelectTitle" class="max-w-[145px] truncate"></select>
       <select id="pricingSelect" data-i18n-title="pricingSelectTitle" class="max-w-[175px] truncate">
         <option value="auto" data-i18n="priceAuto">计价：按模型自动</option>
-        <option value="gemini_3_1_pro">Gemini 3.1/4 Pro ($2/$12)</option>
+        <option value="gemini_4_argon">Gemini 4 Argon ($2/$10 → $4/$20)</option>
+        <option value="gemini_3_1_pro">Gemini 3.1 Pro ($2/$12)</option>
         <option value="gemini_pro">Gemini 2.5 Pro ($1.25/$10)</option>
-        <option value="gemini_flash">Gemini Flash ($0.30/$2.5)</option>
-        <option value="claude_sonnet">Claude Sonnet 4.x ($3/$15)</option>
-        <option value="claude_opus">Claude Opus 4.x ($5/$25)</option>
+        <option value="gemini_flash">Gemini 2.5 Flash ($0.30/$2.5)</option>
+        <option value="claude_sonnet">Claude Sonnet 4.6 ($3/$15)</option>
+        <option value="claude_opus">Claude Opus 4.6–5 ($5/$25)</option>
       </select>
       <button id="langToggle" type="button" data-i18n-title="langToggleTitle" class="font-medium">EN</button>
     </div>
@@ -219,7 +221,7 @@
       </div>
       <div class="flex flex-wrap items-center justify-between gap-1 text-[11px] muted">
         <span id="tick200kLegend" class="text-amber-400/90" data-i18n="tick200k">▲ 200k 长上下文计价线</span>
-        <span id="ctxCompRemain" class="tabular-nums"></span>
+        <span id="ctxCompRemain" class="tabular-nums ml-auto"></span>
       </div>
     </div>
 
@@ -714,11 +716,15 @@
       document.getElementById("ctxTokens").textContent =
         fmtCompact(maxPhys) + " · " + pct.toFixed(1) + "%";
       document.getElementById("ctxPhysBar").style.width = Math.min(100, pct).toFixed(2) + "%";
-      document.getElementById("tick200kPhys").style.left = Math.min(100, (200000 / maxPhys) * 100).toFixed(2) + "%";
+      // The 200k ticks show only when the current model's price has a long-context tier.
+      const tierAt = Number(s.priceTierThreshold || 0);
+      const tick200kPhys = document.getElementById("tick200kPhys");
+      tick200kPhys.style.left = Math.min(100, (tierAt / maxPhys) * 100).toFixed(2) + "%";
+      tick200kPhys.style.display = tierAt > 0 ? "" : "none";
       document.getElementById("tick256kPhys").style.left = Math.min(100, (compLimit / maxPhys) * 100).toFixed(2) + "%";
       const tick200kComp = document.getElementById("tick200kComp");
-      tick200kComp.style.left = Math.min(100, (200000 / compLimit) * 100).toFixed(2) + "%";
-      tick200kComp.style.display = compLimit > 200000 ? "" : "none";
+      tick200kComp.style.left = Math.min(100, (tierAt / compLimit) * 100).toFixed(2) + "%";
+      tick200kComp.style.display = tierAt > 0 && tierAt < compLimit ? "" : "none";
       document.getElementById("tick200kLegend").style.display = tick200kComp.style.display;
 
       const level = compPct > 85 ? "rose" : compPct > 60 ? "amber" : "emerald";
