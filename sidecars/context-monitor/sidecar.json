@@ -1,0 +1,18 @@
+{
+  "display_name": "Context & TPS Monitor",
+  "description": "Real-time Context window watermark (1.05M physical / 256k compaction), cache hit rate, per-model API cost & cache savings (>200k tier), TTFT, and E2E / Decode TPS monitor.",
+  "command": "node",
+  "args": ["--watch", "server.mjs"],
+  "restart_policy": "always",
+  "has_web_ui": true,
+  "ui_config": {
+    "display_name": "Context & TPS Monitor",
+    "views": [
+      {
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "path": "/",
+        "title": "Context & TPS"
+      }
+    ]
+  }
+}

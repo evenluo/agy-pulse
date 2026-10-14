@@ -1,0 +1,12 @@
+{
+  "name": "context-monitor",
+  "displayName": "Context & TPS Monitor",
+  "version": "1.0.0",
+  "description": "Real-time dual-track Context window watermark (1.05M physical & 256k auto-compaction), cache hit rate, per-model API cost & cache savings (>200k tier pricing), TTFT, and E2E/Decode TPS monitor for Antigravity.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Open Context & TPS Monitor panel",
+    "打开 Context & TPS 监控面板",
+    "Check current session token usage, cache hit rate, and TPS"
+  ]
+}

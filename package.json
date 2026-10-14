@@ -1,0 +1,54 @@
+{
+  "name": "antigravity-context-monitor",
+  "version": "1.0.0",
+  "description": "Native Antigravity 2.0 Sidecar UI Extension & Plugin for real-time Context Window watermark (1.05M / 256k compaction), Cache Hit Rate, Per-Model API Cost (>200k tier), TTFT, and E2E/Decode TPS monitoring.",
+  "type": "module",
+  "main": "sidecars/context-monitor/server.mjs",
+  "bin": {
+    "antigravity-context-monitor": "./install.mjs",
+    "agy-context-monitor": "./install.mjs"
+  },
+  "scripts": {
+    "start": "node sidecars/context-monitor/server.mjs",
+    "test": "node --test test/server.test.mjs",
+    "setup": "node install.mjs",
+    "uninstall-sidecar": "node install.mjs --uninstall",
+    "status": "node install.mjs --status"
+  },
+  "keywords": [
+    "antigravity",
+    "google-antigravity",
+    "antigravity-plugin",
+    "antigravity-sidecar",
+    "gemini",
+    "claude",
+    "context-window",
+    "token-monitor",
+    "tps",
+    "ttft",
+    "prompt-caching"
+  ],
+  "author": "evenluo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/evenluo/antigravity-context-monitor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/evenluo/antigravity-context-monitor/issues"
+  },
+  "homepage": "https://github.com/evenluo/antigravity-context-monitor#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "plugin.json",
+    "install.mjs",
+    "assets/",
+    "sidecars/",
+    "skills/",
+    "README.md",
+    "README_CN.md",
+    "LICENSE"
+  ]
+}

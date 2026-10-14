@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="28" y1="28" x2="228" y2="228" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+    <linearGradient id="ctxGrad" x1="56" y1="0" x2="200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+    <linearGradient id="tpsGrad" x1="56" y1="168" x2="200" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Safe 11% margin (28px inset on 256x256 canvas) for Antigravity square icon framing -->
+  <rect x="28" y="28" width="200" height="200" rx="44" fill="url(#bgGrad)" stroke="#38BDF8" stroke-width="4" stroke-opacity="0.45"/>
+
+  <!-- Top Dual-Track Context Watermark Bars -->
+  <rect x="56" y="62" width="144" height="14" rx="7" fill="#334155"/>
+  <rect x="56" y="62" width="96" height="14" rx="7" fill="url(#ctxGrad)"/>
+  <!-- 200k & 256k Tick Markers -->
+  <rect x="134" y="59" width="3" height="20" rx="1.5" fill="#FBBF24"/>
+  <rect x="164" y="59" width="3" height="20" rx="1.5" fill="#FB7185"/>
+
+  <!-- Sub-bar (Compaction Track) -->
+  <rect x="56" y="86" width="144" height="8" rx="4" fill="#334155"/>
+  <rect x="56" y="86" width="112" height="8" rx="4" fill="#10B981"/>
+
+  <!-- Bottom TPS Telemetry Pulse Line -->
+  <path d="M56 174 L86 158 L112 166 L142 122 L168 138 L198 106" stroke="url(#tpsGrad)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="86" cy="158" r="5" fill="#38BDF8"/>
+  <circle cx="142" cy="122" r="5.5" fill="#A78BFA"/>
+  <circle cx="198" cy="106" r="6.5" fill="#34D399"/>
+
+  <!-- Bottom-Right Speed Bolt Badge -->
+  <path d="M174 152 L158 178 H173 L169 198 L191 170 H175 L174 152 Z" fill="#FBBF24"/>
+</svg>
