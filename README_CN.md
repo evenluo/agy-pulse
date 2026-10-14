@@ -99,7 +99,7 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 - 面板把对话首条提示的前 80 个字符作为标题。能访问该端口的本机进程可以从 `/api/metrics` 读取相同数据。服务只响应 `Host` 为 `127.0.0.1`、`localhost` 或 `[::1]` 的请求，因此网页无法通过 DNS rebinding 读取这些数据。
 - 页面不加载任何外部脚本、样式或字体。
 
-请通过 [GitHub Security Advisories](https://github.com/evenluo/agy-pulse/security/advisories/new) 私下报告漏洞。
+请私下报告漏洞，方式见 [SECURITY.md](SECURITY.md)。
 
 ## 限制
 
@@ -107,7 +107,7 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 - 没有 RPC 时，TTFT 和 Thinking/正文拆分不可用，耗时由 Transcript 步骤时间戳估算。
 - Transcript 格式和 RPC 属于 Antigravity 内部实现，宿主更新可能改变它们。
 - GPT-OSS 120B 没有厂商标价，按 Gemini 3.1 Pro 计价。Antigravity 将在 2026-11-02 移除该模型。
-- 256k 压缩默认值是在 Gemini 模型上实测的。没有 RPC 数据时，Claude 模型的水位也使用这个默认值。
+- 256k 压缩默认值是在 Gemini 模型上实测的。没有 RPC 数据时，非 Gemini 模型也使用这个默认值。
 - CI 覆盖 Linux、macOS 和 Windows。CI 只运行测试，不包含真实的 Antigravity 环境。
 
 ## 排障

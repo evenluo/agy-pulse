@@ -99,7 +99,7 @@ Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor
 - The panel shows the first 80 characters of the conversation's first prompt as its title. Any local process that can reach the port can read the same data from `/api/metrics`. The server answers only requests whose `Host` is `127.0.0.1`, `localhost`, or `[::1]`, so a web page cannot read it through DNS rebinding.
 - The page loads no external scripts, styles, or fonts.
 
-Report vulnerabilities privately through [GitHub security advisories](https://github.com/evenluo/agy-pulse/security/advisories/new).
+Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## Limitations
 
@@ -107,7 +107,7 @@ Report vulnerabilities privately through [GitHub security advisories](https://gi
 - Without RPC, TTFT and the thinking/response split are not available, and durations are estimated from transcript step timestamps.
 - The transcript format and the RPC are Antigravity internals. A host update can change them.
 - GPT-OSS 120B has no vendor list price and is billed as Gemini 3.1 Pro. Antigravity removes it on 2026-11-02.
-- The 256k compaction default is measured on Gemini models. Without RPC data, the watermark for Claude models uses the same default.
+- The 256k compaction default is measured on Gemini models. Without RPC data, non-Gemini models use the same default.
 - CI covers Linux, macOS, and Windows. It runs the tests, not a live Antigravity host.
 
 ## Troubleshooting

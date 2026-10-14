@@ -34,8 +34,11 @@ All notable changes to this project are documented here. The format follows [Kee
 - Panel wording: shorter labels in plain words, no unexplained abbreviations, and every label in both languages. Cache savings show as a positive amount instead of a negative percentage.
 - Panel layout: the distance to auto-compaction comes first and the model window second; the conversation title shows at any width; in a narrow pane the turns table keeps #, Context, tok/s, and Cost; TTFT and the thinking split are hidden when the data source does not provide them.
 - The server reads `ui/` files on each request, so UI edits show up without a restart.
-- Removed the `ANTIGRAVITY_SIDECAR_UI_TOKEN` check, which accepted every `GET` request, and all routes are `GET`.
 - Node.js 20 or later is required; CI tests Node.js 20, 22, and 24 on Linux, macOS, and Windows.
+
+### Removed
+
+- The `ANTIGRAVITY_SIDECAR_UI_TOKEN` check. It accepted every `GET` request, and every route is `GET`.
 
 ### Added
 
