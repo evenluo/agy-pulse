@@ -60,16 +60,21 @@
     .space-y-3 > * + * { margin-top: 12px; }
     .flex { display: flex; }
     .flex-wrap { flex-wrap: wrap; }
+    .flex-auto { flex: 1 1 auto; }
     .inline-block { display: inline-block; }
     .hidden { display: none; }
     .grid { display: grid; }
     .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
     .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     @media (min-width: 520px) {
-      .sm\:inline { display: inline; }
-      .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .sm\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     }
+    /* Narrow panes keep only #, Context, tok/s and Cost in the turns table. */
+    @media (max-width: 519px) {
+      .wide-only { display: none; }
+    }
+    table.no-ttft .col-ttft { display: none; }
     .items-center { align-items: center; }
     .items-baseline { align-items: baseline; }
     .justify-between { justify-content: space-between; }
@@ -91,8 +96,7 @@
     .w-\[2px\] { width: 2px; }
     .max-w-\[145px\] { max-width: 145px; }
     .max-w-\[175px\] { max-width: 175px; }
-    .max-w-\[200px\] { max-width: 200px; }
-    .max-h-64 { max-height: 256px; }
+        .max-h-64 { max-height: 256px; }
     .relative { position: relative; }
     .absolute { position: absolute; }
     .top-0 { top: 0; }
@@ -169,183 +173,164 @@
 </head>
 <body class="antialiased space-y-2.5 text-xs max-w-5xl mx-auto">
 
-  <!-- Tier 1: Top Header & Global Controls -->
+  <!-- Header: model, data source, conversation, controls -->
   <div class="card flex flex-wrap items-center justify-between gap-2 py-2.5">
-    <div class="flex items-center gap-2 min-w-0">
+    <div class="flex flex-auto items-center gap-2 min-w-0">
       <span id="liveDot" class="inline-block w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-      <span class="font-semibold text-sm truncate" id="modelBadge">Context & TPS</span>
+      <span class="font-semibold text-sm shrink-0" id="modelBadge">Context & TPS</span>
       <span id="sourceBadge" class="px-1.5 py-0.5 rounded text-[11px] border border-current opacity-80 shrink-0">RPC</span>
-      <span id="convTitle" class="muted truncate hidden sm:inline max-w-[200px]"></span>
+      <span id="convTitle" class="muted truncate min-w-0"></span>
     </div>
     <div class="flex flex-wrap items-center gap-1.5">
       <label class="flex items-center gap-1 cursor-pointer muted select-none text-[11px]">
         <input type="checkbox" id="autoFollow" checked />
         <span data-i18n="autoFollow">跟随最新</span>
       </label>
-      <select id="convSelect" title="Switch Conversation" class="max-w-[145px] truncate"></select>
-      <select id="pricingSelect" title="Select API Pricing Tier (>200k tiered)" class="max-w-[175px] truncate">
-        <option value="auto" data-i18n="priceAuto">按各轮模型自动计价 (推荐)</option>
+      <select id="convSelect" data-i18n-title="convSelectTitle" class="max-w-[145px] truncate"></select>
+      <select id="pricingSelect" data-i18n-title="pricingSelectTitle" class="max-w-[175px] truncate">
+        <option value="auto" data-i18n="priceAuto">计价：按模型自动</option>
         <option value="gemini_3_1_pro">Gemini 3.1/4 Pro ($2/$12)</option>
         <option value="gemini_pro">Gemini 2.5 Pro ($1.25/$10)</option>
         <option value="gemini_flash">Gemini Flash ($0.30/$2.5)</option>
         <option value="claude_sonnet">Claude Sonnet 4.x ($3/$15)</option>
         <option value="claude_opus">Claude Opus 4.x ($5/$25)</option>
       </select>
-      <button id="langToggle" type="button" title="Switch Language / 切换中英文" class="font-medium">EN</button>
+      <button id="langToggle" type="button" data-i18n-title="langToggleTitle" class="font-medium">EN</button>
     </div>
   </div>
 
-  <!-- Tier 2: Full-Width Hero Card — Dual-Track Context Window -->
+  <!-- Context: distance to auto-compaction first, then the model window -->
   <div class="card space-y-2.5">
     <div class="flex flex-wrap items-center justify-between gap-1.5">
       <div class="flex items-center gap-2">
-        <span class="font-semibold text-sm" data-i18n="ctxHeroTitle">Context 窗口水位</span>
-        <span id="turnCountBadge" class="px-1.5 py-0.5 rounded bg-slate-500/15 muted text-[11px] tabular-nums">0 轮</span>
+        <span class="font-semibold text-sm" data-i18n="ctxHeroTitle">Context 用量</span>
+        <span id="turnCountBadge" class="px-1.5 py-0.5 rounded bg-slate-500/15 muted text-[11px] tabular-nums"></span>
       </div>
-      <span id="ctxStatusBadge" class="px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-        🟢 常规安全区 (<60% 压缩水位)
-      </span>
+      <span id="ctxStatusBadge" class="px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"></span>
     </div>
 
-    <!-- Track 1: 1.05M Physical Window Bar with 200k & 256k Tick Markers -->
     <div class="space-y-1">
-      <div class="flex items-baseline justify-between">
-        <span class="muted"><span data-i18n="physBarTitle">1.05M 物理窗口实际占用</span> <span class="opacity-70" data-i18n="physBarSub">(主进度条与百分比严格对齐)</span></span>
-        <div class="flex items-baseline gap-2 tabular-nums">
-          <span id="ctxTokens" class="text-sm font-bold">0 / 1.05M</span>
-          <span id="ctxPct" class="text-sm font-bold text-sky-400">0.00%</span>
-        </div>
+      <div class="flex flex-wrap items-baseline justify-between gap-1">
+        <span class="muted" data-i18n="compBarTitle">距自动压缩</span>
+        <span id="ctxRemain" class="text-sm font-bold tabular-nums text-emerald-400"></span>
       </div>
       <div class="relative w-full h-3 rounded-full bg-slate-500/20 overflow-hidden">
-        <div id="ctxPhysBar" class="h-full bg-sky-400 transition-all duration-300" style="width: 0%"></div>
-        <div id="tick200kPhys" class="absolute top-0 bottom-0 w-[2px] bg-amber-400/90 z-10" style="left: 19.07%" title="200k API Tier Threshold (19.07% of 1.05M)"></div>
-        <div id="tick256kPhys" class="absolute top-0 bottom-0 w-[2px] bg-rose-400/90 z-10" style="left: 24.41%" title="256k Auto-Compaction Watermark (24.41% of 1.05M)"></div>
+        <div id="ctxBar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
+        <div id="tick200kComp" class="absolute top-0 bottom-0 w-[2px] bg-amber-400/90 z-10" style="left: 78.13%" data-i18n-title="tick200kTitle"></div>
       </div>
-      <div class="flex flex-wrap items-center justify-between text-[11px] muted gap-1">
-        <div class="flex items-center gap-3">
-          <span class="text-amber-400/90" data-i18n="tick200kLabel">▲ 200k 阶梯价线 (19.1%)</span>
-          <span class="text-rose-400/90" data-i18n="tick256kLabel">▲ 256k 自动压缩线 (24.4%)</span>
-        </div>
-        <span id="ctxPhysRemain" class="tabular-nums">物理余量: 1.05M</span>
+      <div class="flex flex-wrap items-center justify-between gap-1 text-[11px] muted">
+        <span class="text-amber-400/90" data-i18n="tick200k">▲ 200k 长上下文计价线</span>
+        <span id="ctxCompRemain" class="tabular-nums"></span>
       </div>
     </div>
 
-    <!-- Track 2: 256k Automatic Compaction Watermark Sub-Bar -->
     <div class="pt-1 border-t border-slate-500/15 space-y-1">
-      <div class="flex items-baseline justify-between">
-        <span class="muted"><span data-i18n="compBarTitle">256k 自动压缩水位进度</span> <span class="opacity-70" data-i18n="compBarSub">(Antigravity Checkpointer 阈值)</span></span>
-        <div class="flex items-baseline gap-2 tabular-nums">
-          <span id="ctxRemain" class="font-semibold text-emerald-400">0.0k / 256.0k (0.0%)</span>
-          <span id="ctxCompRemain" class="muted text-[11px]">距压缩还剩 256.0k</span>
-        </div>
+      <div class="flex flex-wrap items-baseline justify-between gap-1 text-[11px]">
+        <span class="muted" data-i18n="physBarTitle">模型窗口</span>
+        <span id="ctxTokens" class="muted tabular-nums"></span>
       </div>
-      <div class="relative w-full h-2 rounded-full bg-slate-500/20 overflow-hidden">
-        <div id="ctxBar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
-        <div class="absolute top-0 bottom-0 w-[2px] bg-amber-400/80 z-10" style="left: 78.125%" title="200k API Tier Threshold (78.1% of 256k)"></div>
+      <div class="relative w-full h-1.5 rounded-full bg-slate-500/20 overflow-hidden">
+        <div id="ctxPhysBar" class="h-full bg-sky-400 transition-all duration-300" style="width: 0%"></div>
+        <div id="tick200kPhys" class="absolute top-0 bottom-0 w-[2px] bg-amber-400/90 z-10" style="left: 19.07%" data-i18n-title="tick200kTitle"></div>
+        <div id="tick256kPhys" class="absolute top-0 bottom-0 w-[2px] bg-rose-400/90 z-10" style="left: 24.41%" data-i18n-title="tickCompTitle"></div>
       </div>
     </div>
   </div>
 
-  <!-- Tier 3: Real-Time Speed, Latency & Cache Strip (3 Cards) -->
+  <!-- Speed, last turn, cache -->
   <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
     <div class="card space-y-1.5">
-      <div class="flex items-center justify-between">
-        <span class="muted font-medium" data-i18n="tpsCardTitle">体感速度 (E2E TPS)</span>
-        <span id="tpsModeLabel" class="muted text-[11px]">含 TTFT 端到端</span>
+      <div class="flex items-center justify-between gap-1">
+        <span class="muted font-medium" data-i18n="speedTitle">速度</span>
+        <span id="tpsModeLabel" class="muted text-[11px]"></span>
       </div>
       <div class="flex items-baseline justify-between gap-1">
         <span class="text-base font-bold tabular-nums text-violet-400" id="mainTps">-- tok/s</span>
         <span class="muted tabular-nums text-[11px]" id="subTps"></span>
       </div>
-      <div class="flex justify-between muted text-[11px] pt-0.5 border-t border-slate-500/10">
-        <span id="avgTps">均值: --</span>
-        <span id="peakTps">峰值: --</span>
+      <div class="flex justify-between gap-1 muted text-[11px] pt-0.5 border-t border-slate-500/10">
+        <span id="avgTps"></span>
+        <span id="peakTps"></span>
       </div>
     </div>
 
     <div class="card space-y-1.5">
-      <div class="flex items-center justify-between">
-        <span class="muted font-medium" data-i18n="ttftCardTitle">首字延迟 & 本轮输出</span>
-        <span id="ttftVal" class="font-bold text-amber-400 tabular-nums">TTFT: --</span>
+      <div class="flex items-center justify-between gap-1">
+        <span class="muted font-medium" data-i18n="lastTurnTitle">本轮</span>
+        <span id="ttftVal" class="font-bold text-amber-400 tabular-nums"></span>
       </div>
-      <div class="text-base font-bold tabular-nums" id="outTokens">本轮输出: 0</div>
-      <div class="flex justify-between muted text-[11px] pt-0.5 border-t border-slate-500/10">
-        <span id="thinkRespSplit">思考: 0 | 正文: 0</span>
-        <span id="totalOutTokens">平均TTFT: --</span>
+      <div class="text-base font-bold tabular-nums" id="outTokens"></div>
+      <div id="lastTurnFooter" class="flex justify-between gap-1 muted text-[11px] pt-0.5 border-t border-slate-500/10">
+        <span id="thinkRespSplit"></span>
+        <span id="avgTtft"></span>
       </div>
     </div>
 
     <div class="card space-y-1.5">
-      <div class="flex items-center justify-between">
-        <span class="muted font-medium" data-i18n="cacheCardTitle">Cache 缓存命中率</span>
+      <div class="flex items-center justify-between gap-1">
+        <span class="muted font-medium" data-i18n="cacheTitle">缓存命中率</span>
         <span id="cacheRate" class="font-bold text-sky-400 tabular-nums">0.0%</span>
       </div>
       <div class="flex items-baseline justify-between gap-1">
-        <span class="text-base font-bold tabular-nums" id="cacheTokens">命中 0</span>
-        <span id="uncachedTokens" class="muted text-[11px] tabular-nums">新增: 0</span>
+        <span class="text-base font-bold tabular-nums text-sky-400" id="cacheTokens"></span>
+        <span id="uncachedTokens" class="text-amber-400 text-[11px] tabular-nums"></span>
       </div>
       <div class="w-full h-1.5 rounded-full overflow-hidden bg-amber-500/30 flex">
         <div id="cacheBar" class="h-full bg-sky-400 transition-all duration-300" style="width: 0%"></div>
       </div>
-      <div class="flex justify-between muted text-[11px]">
-        <span data-i18n="cacheLegend">蓝: 缓存读取 · 黄: 新增输入</span>
-        <span id="sessionCacheRate">累计: 0.0%</span>
-      </div>
+      <div class="muted text-[11px]" id="sessionCacheRate"></div>
     </div>
   </div>
 
-  <!-- Tier 4: Session Cumulative Billing & Per-Model ID Breakdown -->
+  <!-- Session cost and per-model breakdown -->
   <div class="card space-y-3">
     <div class="flex flex-wrap items-center justify-between gap-1.5">
-      <div class="flex items-center gap-2">
-        <span class="font-semibold text-sm" data-i18n="billingCardTitle">会话累计 Token & 分模型 API 计费估算</span>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="font-semibold text-sm" data-i18n="billingTitle">会话费用</span>
         <span id="pricingModelTag" class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[11px]"></span>
       </div>
-      <span id="sessionTotalBadge" class="font-bold text-sm text-emerald-400 tabular-nums">$0.00</span>
+      <span id="sessionTotalBadge" class="muted text-[11px] tabular-nums"></span>
     </div>
 
-    <!-- 2x2 / 4-Col Financial & Token Summary Strip -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
       <div class="subcard border-emerald-500/25 bg-emerald-500/10 space-y-0.5">
-        <div class="muted text-[11px]" data-i18n="estTotalCost">等效 API 总费用</div>
+        <div class="muted text-[11px]" data-i18n="estTotalCost">按 API 标价</div>
         <div class="text-base font-bold tabular-nums text-emerald-400" id="costTotalUsd">$0.000</div>
-        <div class="muted text-[11px] tabular-nums" id="costLastTurn">本轮: $0.000</div>
+        <div class="muted text-[11px] tabular-nums" id="costLastTurn"></div>
       </div>
       <div class="subcard border-sky-500/25 bg-sky-500/10 space-y-0.5">
-        <div class="muted text-[11px]" data-i18n="cacheSavedCost">Cache 命中已省费用</div>
-        <div class="text-base font-bold tabular-nums text-sky-400" id="costSavedUsd">省 $0.000 (0.0%)</div>
-        <div class="muted text-[11px] tabular-nums" id="costNoCacheUsd">无缓存原价: $0.000</div>
+        <div class="muted text-[11px]" data-i18n="cacheSaved">缓存节省</div>
+        <div class="text-base font-bold tabular-nums text-sky-400" id="costSavedUsd">$0.000</div>
+        <div class="muted text-[11px] tabular-nums" id="costNoCacheUsd"></div>
       </div>
       <div class="subcard space-y-0.5">
-        <div class="flex justify-between muted text-[11px]"><span data-i18n="cumInput">累计总输入</span><span id="costSplitUsd" class="text-sky-400 tabular-nums"></span></div>
+        <div class="flex justify-between muted text-[11px]"><span data-i18n="cumInput">输入</span><span id="costSplitUsd" class="text-sky-400 tabular-nums"></span></div>
         <div class="text-sm font-bold tabular-nums text-sky-400" id="sumInTokens">0</div>
-        <div class="muted text-[11px] tabular-nums" id="sumInSplit">缓: 0 | 新: 0</div>
+        <div class="muted text-[11px] tabular-nums" id="sumInSplit"></div>
       </div>
       <div class="subcard space-y-0.5">
-        <div class="flex justify-between muted text-[11px]"><span data-i18n="cumOutput">累计总输出</span><span id="costDetailSplit" class="text-violet-400 tabular-nums"></span></div>
+        <div class="flex justify-between muted text-[11px]"><span data-i18n="cumOutput">输出</span><span id="costDetailSplit" class="text-violet-400 tabular-nums"></span></div>
         <div class="text-sm font-bold tabular-nums text-violet-400" id="sumOutTokens">0</div>
-        <div class="muted text-[11px] tabular-nums" id="sumOutSplit">思: 0 | 正: 0</div>
+        <div class="muted text-[11px] tabular-nums" id="sumOutSplit"></div>
       </div>
     </div>
-    <div class="hidden"><span id="sumAllTokens"></span><span id="sumNetTokens"></span></div>
 
-    <!-- Per-Model ID Statistics & Billing Breakdown -->
     <div class="pt-2 border-t border-slate-500/15 space-y-2">
       <div class="flex items-center justify-between">
-        <span class="font-medium text-xs" data-i18n="perModelTitle">分模型统计与计费明细 (Per-Model ID Breakdown)</span>
-        <span id="modelCountBadge" class="muted text-[11px]">0 个模型</span>
+        <span class="font-medium text-xs" data-i18n="perModelTitle">按模型</span>
+        <span id="modelCountBadge" class="muted text-[11px]"></span>
       </div>
       <div id="modelStatsList" class="space-y-2"></div>
     </div>
   </div>
 
-  <!-- Tier 5: Trend Chart & Per-Turn Detail Table -->
+  <!-- Trend chart and per-turn table -->
   <div class="card space-y-2">
-    <div class="flex items-center justify-between">
-      <span class="font-medium" data-i18n="trendTitle">每轮趋势 (Context 占用 & 体感 E2E TPS)</span>
+    <div class="flex flex-wrap items-center justify-between gap-1">
+      <span class="font-medium" data-i18n="trendTitle">每轮 Context 与速度</span>
       <div class="flex items-center gap-3 muted text-[11px]">
-        <span><span class="inline-block w-2 h-2 rounded-full bg-sky-400 mr-1"></span><span data-i18n="axisCtx">Context (左轴)</span></span>
-        <span><span class="inline-block w-2 h-2 rounded-full bg-violet-400 mr-1"></span><span data-i18n="axisTps">E2E TPS (右轴)</span></span>
+        <span><span class="inline-block w-2 h-2 rounded-full bg-sky-400 mr-1"></span><span data-i18n="axisCtx">Context（左）</span></span>
+        <span><span class="inline-block w-2 h-2 rounded-full bg-violet-400 mr-1"></span><span data-i18n="axisTps">tok/s（右）</span></span>
       </div>
     </div>
     <svg id="trendSvg" viewBox="0 0 400 105" class="w-full h-24 overflow-visible"></svg>
@@ -353,21 +338,21 @@
 
   <div class="card space-y-1.5">
     <div class="flex items-center justify-between">
-      <span class="font-medium" data-i18n="turnTableTitle">各轮调用明细 (最新在前)</span>
+      <span class="font-medium" data-i18n="turnTableTitle">每轮明细（最新在前）</span>
       <span class="muted text-[11px]" id="updatedTime"></span>
     </div>
     <div class="overflow-x-auto max-h-64 overflow-y-auto">
-      <table>
+      <table id="turnTable">
         <thead>
           <tr class="muted">
             <th>#</th>
-            <th data-i18n="thModel">模型</th>
+            <th class="wide-only" data-i18n="thModel">模型</th>
             <th>Context</th>
-            <th>Cache%</th>
-            <th data-i18n="thOut">Out (思/正)</th>
-            <th>TTFT</th>
-            <th data-i18n="thDur">总耗时</th>
-            <th>E2E (Dec)</th>
+            <th class="wide-only" data-i18n="thCache">缓存</th>
+            <th class="wide-only" data-i18n="thOut" data-i18n-title="thOutTitle">输出</th>
+            <th class="wide-only col-ttft" data-i18n-title="thTtftTitle">TTFT</th>
+            <th class="wide-only" data-i18n="thDur">耗时</th>
+            <th data-i18n-title="thTpsTitle">tok/s</th>
             <th data-i18n="thCost">费用</th>
           </tr>
         </thead>
@@ -376,138 +361,163 @@
     </div>
   </div>
   <script>
+    // Every visible label lives here. "{name}" placeholders are filled by tr(key, vars).
     const I18N = {
       zh: {
         autoFollow: "跟随最新",
-        priceAuto: "按各轮模型自动计价 (推荐)",
-        ctxHeroTitle: "Context 窗口水位",
-        physBarTitle: "1.05M 物理窗口实际占用",
-        physBarSub: "(主进度条与百分比严格对齐)",
-        tick200kLabel: "▲ 200k 阶梯价线 (19.1%)",
-        tick256kLabel: "▲ 256k 自动压缩线 (24.4%)",
-        compBarTitle: "256k 自动压缩水位进度",
-        compBarSub: "(Antigravity Checkpointer 阈值)",
-        tpsCardTitle: "体感速度 (E2E TPS)",
-        ttftCardTitle: "首字延迟 & 本轮输出",
-        cacheCardTitle: "Cache 缓存命中率",
-        cacheLegend: "蓝: 缓存读取 · 黄: 新增输入",
-        billingCardTitle: "会话累计 Token & 分模型 API 计费估算",
-        estTotalCost: "等效 API 总费用",
-        cacheSavedCost: "Cache 命中已省费用",
-        cumInput: "累计总输入",
-        cumOutput: "累计总输出",
-        perModelTitle: "分模型统计与计费明细 (Per-Model ID Breakdown)",
-        trendTitle: "每轮趋势 (Context 占用 & 体感 E2E TPS)",
-        axisCtx: "Context (左轴)",
-        axisTps: "E2E TPS (右轴)",
-        turnTableTitle: "各轮调用明细 (最新在前)",
+        convSelectTitle: "切换对话",
+        pricingSelectTitle: "计价方案",
+        priceAuto: "计价：按模型自动",
+        langToggleTitle: "Switch to English",
+        srcRpcTitle: "数据来自 Language Server，耗时精确到毫秒",
+        srcTranscriptTitle: "数据来自 Transcript，耗时按秒估算",
+        ctxHeroTitle: "Context 用量",
+        turnCount: "{n} 轮",
+        compactedCount: " · 已压缩 {n} 次",
+        statusSafe: "🟢 空间充足",
+        statusWarn: "🟡 接近自动压缩",
+        statusDanger: "🔴 即将自动压缩",
+        compBarTitle: "距自动压缩",
+        compLeft: "还剩 {n}",
+        tick200k: "▲ 200k 长上下文计价线",
+        tick200kTitle: "超过 200k 输入后按长上下文价格计费",
+        tickCompTitle: "自动压缩阈值",
+        physBarTitle: "模型窗口",
+        speedTitle: "速度",
+        modeE2e: "含首字延迟",
+        modeDec: "仅解码",
+        decode: "解码 {n}",
+        visible: "可见 {n}",
+        avg: "均值 {n} tok/s",
+        peak: "峰值 {n} tok/s",
+        lastTurnTitle: "本轮",
+        ttft: "首字 {n}s",
+        totalTime: "耗时 {n}s",
+        outTokens: "输出 {n} Token",
+        thinkResp: "思考 {a} · 正文 {b}",
+        avgTtft: "平均首字 {n}s",
+        cacheTitle: "缓存命中率",
+        cached: "命中 {n}",
+        newTokens: "新增 {n}",
+        sessionRate: "会话累计 {n}%",
+        billingTitle: "会话费用",
+        multiModelTag: "{n} 个模型，分别计价",
+        sessionTokens: "共 {n} Token",
+        estTotalCost: "按 API 标价",
+        lastTurnCost: "本轮 {n}",
+        highTierTurns: "{n} 轮 >200k",
+        highTierTitle: "该轮按 >200k 价格计费",
+        cacheSaved: "缓存节省",
+        savedVsNoCache: "比无缓存 {cost} 少 {pct}%",
+        cumInput: "输入",
+        cumOutput: "输出",
+        inSplit: "缓存 {a} · 新增 {b}",
+        outSplit: "思考 {a} · 正文 {b}",
+        perModelTitle: "按模型",
+        modelCount: "{n} 个模型",
+        priceAs: "计价：{p}",
+        saved: "省 {n}",
+        costShare: "占 {n}%",
+        mTurns: "轮数",
+        mTurnsVal: "{n}（{pct}%）· {tok} Token",
+        mInput: "输入",
+        mInputVal: "{n} · 缓存 {pct}%",
+        mOutput: "输出",
+        mCost: "费用",
+        mCostVal: "输入 {a} · 输出 {b}",
+        trendTitle: "每轮 Context 与速度",
+        axisCtx: "Context（左）",
+        axisTps: "tok/s（右）",
+        turnTableTitle: "每轮明细（最新在前）",
         thModel: "模型",
-        thOut: "Out (思/正)",
-        thDur: "总耗时",
+        thCache: "缓存",
+        thOut: "输出",
+        thOutTitle: "括号内为 思考/正文",
+        thTtftTitle: "首字延迟",
+        thDur: "耗时",
+        thTpsTitle: "端到端 tok/s，括号内为解码 tok/s",
         thCost: "费用",
         noTurns: "暂无调用记录",
-        zeroModels: "0 个模型",
         noModelData: "暂无分模型数据",
-        rpcMs: "RPC 毫秒级",
-        transcriptSec: "Transcript 秒级",
-        physRemain: "物理余量: ",
-        compDanger: "🔴 即将触发 256k 自动压缩",
-        compWarn: "🟡 接近 200k 计价阶梯 & 256k 压缩线",
-        compSafe: "🟢 常规安全区 (<60% 压缩水位)",
-        compRemain: "距压缩还剩 ",
-        turnUnit: " 轮",
-        compactedCount: " · 已压缩 ",
-        timesUnit: " 次",
-        hitPrefix: "命中 ",
-        newPrefix: "新增: ",
-        sessionPrefix: "累计: ",
-        modeE2e: "含 TTFT 端到端",
-        modeDec: "纯流式 Decode",
-        decLabel: "解码 ",
-        visLabel: "可见 ",
-        avgPrefix: "均值: ",
-        peakPrefix: "E2E峰值: ",
-        durPrefix: "耗时: ",
-        lastOutPrefix: "本轮输出: ",
-        thinkPrefix: "思考: ",
-        respPrefix: " | 正文: ",
-        respToolPrefix: "正文+工具: ",
-        avgTtftPrefix: "平均TTFT: ",
-        streamDurPrefix: "流耗时: ",
-        inSplitPrefix: "缓: ",
-        inSplitMid: " | 新: ",
-        outSplitPrefix: "思: ",
-        outSplitMid: " | 正: ",
-        lastTurnCostPrefix: "本轮: ",
-        savedPrefix: "省 ",
-        noCachePrefix: "无缓存原价: ",
         interrupted: "中断"
       },
       en: {
-        autoFollow: "Follow Latest",
-        priceAuto: "Auto Per-Turn Model Pricing",
-        ctxHeroTitle: "Context Window Watermark",
-        physBarTitle: "1.05M Physical Window Usage",
-        physBarSub: "(Strictly aligned with percentage)",
-        tick200kLabel: "▲ 200k Price Tier (19.1%)",
-        tick256kLabel: "▲ 256k Auto-Compact (24.4%)",
-        compBarTitle: "256k Auto-Compaction Watermark",
-        compBarSub: "(Antigravity Checkpointer Soft Limit)",
-        tpsCardTitle: "Perceived Speed (E2E TPS)",
-        ttftCardTitle: "First-Token Latency & Turn Out",
-        cacheCardTitle: "Prompt Cache Hit Rate",
-        cacheLegend: "Blue: Cached Read · Amber: Uncached",
-        billingCardTitle: "Session Cumulative Tokens & Per-Model API Cost",
-        estTotalCost: "Est. API Total Cost",
-        cacheSavedCost: "Saved by Prompt Cache",
-        cumInput: "Total Input",
-        cumOutput: "Total Output",
-        perModelTitle: "Per-Model ID Statistics & Billing Breakdown",
-        trendTitle: "Per-Turn Trend (Context Usage & E2E TPS)",
-        axisCtx: "Context (Left)",
-        axisTps: "E2E TPS (Right)",
-        turnTableTitle: "Per-Turn Call Breakdown (Latest First)",
+        autoFollow: "Follow latest",
+        convSelectTitle: "Conversation",
+        pricingSelectTitle: "Pricing profile",
+        priceAuto: "Price: auto per model",
+        langToggleTitle: "切换到中文",
+        srcRpcTitle: "Data from the Language Server, millisecond timing",
+        srcTranscriptTitle: "Data from the transcript, timing estimated in seconds",
+        ctxHeroTitle: "Context",
+        turnCount: "{n} turns",
+        compactedCount: " · compacted {n}×",
+        statusSafe: "🟢 Plenty of room",
+        statusWarn: "🟡 Nearing auto-compaction",
+        statusDanger: "🔴 Auto-compaction soon",
+        compBarTitle: "Until auto-compaction",
+        compLeft: "{n} left",
+        tick200k: "▲ 200k long-context price",
+        tick200kTitle: "Input above 200k is billed at the long-context price",
+        tickCompTitle: "Auto-compaction threshold",
+        physBarTitle: "Model window",
+        speedTitle: "Speed",
+        modeE2e: "incl. first token",
+        modeDec: "decode only",
+        decode: "decode {n}",
+        visible: "visible {n}",
+        avg: "avg {n} tok/s",
+        peak: "peak {n} tok/s",
+        lastTurnTitle: "Last turn",
+        ttft: "TTFT {n}s",
+        totalTime: "{n}s total",
+        outTokens: "{n} tokens out",
+        thinkResp: "thinking {a} · response {b}",
+        avgTtft: "avg TTFT {n}s",
+        cacheTitle: "Cache hit rate",
+        cached: "{n} cached",
+        newTokens: "{n} new",
+        sessionRate: "Session {n}%",
+        billingTitle: "Session cost",
+        multiModelTag: "{n} models, priced separately",
+        sessionTokens: "{n} tokens",
+        estTotalCost: "At API list price",
+        lastTurnCost: "last turn {n}",
+        highTierTurns: "{n} turns >200k",
+        highTierTitle: "Billed at the >200k price",
+        cacheSaved: "Saved by cache",
+        savedVsNoCache: "{pct}% less than {cost} uncached",
+        cumInput: "Input",
+        cumOutput: "Output",
+        inSplit: "{a} cached · {b} new",
+        outSplit: "thinking {a} · response {b}",
+        perModelTitle: "By model",
+        modelCount: "{n} models",
+        priceAs: "Price: {p}",
+        saved: "saved {n}",
+        costShare: "{n}% of cost",
+        mTurns: "Turns",
+        mTurnsVal: "{n} ({pct}%) · {tok} tokens",
+        mInput: "Input",
+        mInputVal: "{n} · {pct}% cached",
+        mOutput: "Output",
+        mCost: "Cost",
+        mCostVal: "input {a} · output {b}",
+        trendTitle: "Context and speed per turn",
+        axisCtx: "Context (left)",
+        axisTps: "tok/s (right)",
+        turnTableTitle: "Turns (latest first)",
         thModel: "Model",
-        thOut: "Out (Thk/Rsp)",
-        thDur: "Duration",
+        thCache: "Cache",
+        thOut: "Output",
+        thOutTitle: "Thinking/response in parentheses",
+        thTtftTitle: "Time to first token",
+        thDur: "Time",
+        thTpsTitle: "End-to-end tok/s, decode tok/s in parentheses",
         thCost: "Cost",
         noTurns: "No turns recorded yet",
-        zeroModels: "0 models",
         noModelData: "No per-model data yet",
-        rpcMs: "RPC Live (ms)",
-        transcriptSec: "Transcript (s)",
-        physRemain: "Physical Free: ",
-        compDanger: "🔴 Near 256k Auto-Compaction",
-        compWarn: "🟡 Approaching 200k Tier & 256k Limit",
-        compSafe: "🟢 Safe Zone (<60% of 256k Limit)",
-        compRemain: "To Compaction: ",
-        turnUnit: " turns",
-        compactedCount: " · Compacted ",
-        timesUnit: "x",
-        hitPrefix: "Hit ",
-        newPrefix: "New: ",
-        sessionPrefix: "Session: ",
-        modeE2e: "End-to-End (incl. TTFT)",
-        modeDec: "Stream Decode Only",
-        decLabel: "Dec ",
-        visLabel: "Vis ",
-        avgPrefix: "Avg: ",
-        peakPrefix: "Peak E2E: ",
-        durPrefix: "Time: ",
-        lastOutPrefix: "Turn Out: ",
-        thinkPrefix: "Think: ",
-        respPrefix: " | Resp: ",
-        respToolPrefix: "Resp+Tool: ",
-        avgTtftPrefix: "Avg TTFT: ",
-        streamDurPrefix: "Stream: ",
-        inSplitPrefix: "Cache: ",
-        inSplitMid: " | New: ",
-        outSplitPrefix: "Thk: ",
-        outSplitMid: " | Rsp: ",
-        lastTurnCostPrefix: "Turn: ",
-        savedPrefix: "Saved ",
-        noCachePrefix: "No-Cache: ",
-        interrupted: "Aborted"
+        interrupted: "Interrupted"
       }
     };
 
@@ -518,8 +528,9 @@
       else if (navigator.language && !navigator.language.toLowerCase().startsWith("zh")) currentLang = "en";
     } catch {}
 
-    function tr(key) {
-      return (I18N[currentLang] && I18N[currentLang][key]) || I18N.zh[key] || key;
+    function tr(key, vars) {
+      const s = (I18N[currentLang] && I18N[currentLang][key]) || I18N.zh[key] || key;
+      return vars ? s.replace(/\{(\w+)\}/g, function(_, k) { return vars[k]; }) : s;
     }
 
     function applyStaticI18n() {
@@ -527,8 +538,10 @@
       const btn = document.getElementById("langToggle");
       if (btn) btn.textContent = currentLang === "zh" ? "EN" : "中文";
       document.querySelectorAll("[data-i18n]").forEach(function(el) {
-        const k = el.getAttribute("data-i18n");
-        if (k) el.textContent = tr(k);
+        el.textContent = tr(el.getAttribute("data-i18n"));
+      });
+      document.querySelectorAll("[data-i18n-title]").forEach(function(el) {
+        el.title = tr(el.getAttribute("data-i18n-title"));
       });
     }
 
@@ -634,49 +647,43 @@
       const container = document.getElementById("modelStatsList");
       const badge = document.getElementById("modelCountBadge");
       if (!models || models.length === 0) {
-        badge.textContent = tr("zeroModels");
+        badge.textContent = "";
         container.innerHTML = "<div class=\"muted text-[11px]\">" + tr("noModelData") + "</div>";
         return;
       }
-      badge.textContent = currentLang === "zh"
-        ? ("共 " + models.length + " 个模型 · 按实际模型分别统计与计费")
-        : (models.length + " model(s) · billed & aggregated per model");
+      badge.textContent = tr("modelCount", { n: models.length });
+      const field = function(label, value) {
+        return "<div><span class=\"muted\">" + label + " </span>" + value + "</div>";
+      };
       container.innerHTML = models.map(function(m) {
         const showRawId = m.modelId && m.modelId !== m.model;
         const hiTag = m.highTierTurnCount > 0
-          ? ("<span class=\"px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 text-[10px]\">>200k: " + m.highTierTurnCount + (currentLang === "zh" ? "轮" : "t") + "</span>")
+          ? ("<span class=\"px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 text-[10px]\" title=\"" + esc(tr("highTierTitle")) + "\">" + tr("highTierTurns", { n: m.highTierTurnCount }) + "</span>")
           : "";
-        const tpsStr = m.avgE2eTps > 0
-          ? (m.avgE2eTps.toFixed(1) + " tok/s" + (m.avgDecodeTps > 0 ? (" (" + tr("decLabel") + m.avgDecodeTps.toFixed(0) + ")") : ""))
-          : (m.avgDecodeTps > 0 ? (m.avgDecodeTps.toFixed(1) + " tok/s") : "--");
-        const tierBadgeLabel = currentLang === "zh" ? "计价: " : "Tier: ";
-        const lblTurns = currentLang === "zh" ? "轮数/吞吐: " : "Turns/Vol: ";
-        const lblIn = currentLang === "zh" ? "输入(缓/新): " : "In (Hit/New): ";
-        const lblOut = currentLang === "zh" ? "输出/均速: " : "Out/Speed: ";
-        const lblCost = currentLang === "zh" ? "费用构成: " : "Cost Split: ";
-        const turnSuffix = currentLang === "zh" ? "轮" : "t";
+        const tps = m.avgE2eTps > 0 ? m.avgE2eTps : m.avgDecodeTps;
+        const tpsStr = tps > 0 ? (tps.toFixed(1) + " tok/s") : "--";
         return "<div class=\"subcard space-y-1.5\">" +
           "<div class=\"flex flex-wrap items-center justify-between gap-1\">" +
             "<div class=\"flex flex-wrap items-center gap-1.5\">" +
               "<span class=\"font-semibold text-xs\">" + esc(m.model) + "</span>" +
               (showRawId ? ("<code class=\"px-1 py-0.5 rounded bg-slate-500/20 muted text-[10px]\">" + esc(m.modelId) + "</code>") : "") +
-              "<span class=\"px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 text-[10px]\" title=\"" + esc(m.pricingProfileFullLabel) + "\">" + tierBadgeLabel + esc(m.pricingProfileLabel) + "</span>" +
+              "<span class=\"px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 text-[10px]\" title=\"" + esc(m.pricingProfileFullLabel) + "\">" + tr("priceAs", { p: esc(m.pricingProfileLabel) }) + "</span>" +
               hiTag +
             "</div>" +
             "<div class=\"flex items-center gap-2 tabular-nums\">" +
-              "<span class=\"text-sky-400 text-[11px]\">" + tr("savedPrefix") + fmtUsd(m.savedByCacheUsd) + " (-" + Number(m.savedByCachePct || 0).toFixed(1) + "%)</span>" +
+              "<span class=\"text-sky-400 text-[11px]\">" + tr("saved", { n: fmtUsd(m.savedByCacheUsd) }) + "</span>" +
               "<span class=\"font-bold text-sm text-emerald-400\">" + fmtUsd(m.costUsd) + "</span>" +
-              "<span class=\"muted text-[11px]\">(" + Number(m.costSharePct || 0).toFixed(1) + "%)</span>" +
+              "<span class=\"muted text-[11px]\">" + tr("costShare", { n: Number(m.costSharePct || 0).toFixed(0) }) + "</span>" +
             "</div>" +
           "</div>" +
           "<div class=\"w-full h-1.5 rounded-full bg-slate-500/20 overflow-hidden flex\">" +
             "<div class=\"h-full bg-emerald-400 transition-all duration-300\" style=\"width: " + Math.min(100, Number(m.costSharePct || 0)).toFixed(1) + "%\"></div>" +
           "</div>" +
           "<div class=\"grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px] pt-0.5 tabular-nums\">" +
-            "<div><span class=\"muted\">" + lblTurns + "</span><span class=\"font-medium\">" + m.turnCount + turnSuffix + " (" + m.turnSharePct.toFixed(0) + "%) · " + fmtCompact(m.totalTokens) + "</span></div>" +
-            "<div><span class=\"muted\">" + lblIn + "</span><span class=\"text-sky-400\">" + fmtCompact(m.inCached) + "</span> / " + fmtCompact(m.inUncached) + " <span class=\"muted\">(" + m.cacheHitRate.toFixed(1) + "%)</span></div>" +
-            "<div><span class=\"muted\">" + lblOut + "</span><span class=\"text-violet-400\">" + fmtCompact(m.outTokens) + "</span> <span class=\"muted\">(" + tpsStr + ")</span></div>" +
-            "<div><span class=\"muted\">" + lblCost + "</span>In " + fmtUsd(m.inputCostUsd) + " · Out " + fmtUsd(m.outputCostUsd) + "</div>" +
+            field(tr("mTurns"), tr("mTurnsVal", { n: m.turnCount, pct: m.turnSharePct.toFixed(0), tok: fmtCompact(m.totalTokens) })) +
+            field(tr("mInput"), tr("mInputVal", { n: fmtCompact(m.inCached + m.inUncached), pct: m.cacheHitRate.toFixed(1) })) +
+            field(tr("mOutput"), fmtCompact(m.outTokens) + " · " + tpsStr) +
+            field(tr("mCost"), tr("mCostVal", { a: fmtUsd(m.inputCostUsd), b: fmtUsd(m.outputCostUsd) })) +
           "</div>" +
         "</div>";
       }).join("");
@@ -699,7 +706,8 @@
 
       document.getElementById("modelBadge").textContent = data.model || "Gemini";
       const srcBadge = document.getElementById("sourceBadge");
-      srcBadge.textContent = data.rpcConnected ? tr("rpcMs") : tr("transcriptSec");
+      srcBadge.textContent = data.rpcConnected ? "RPC" : "Transcript";
+      srcBadge.title = data.rpcConnected ? tr("srcRpcTitle") : tr("srcTranscriptTitle");
       srcBadge.className = "px-1.5 py-0.5 rounded text-[11px] border shrink-0 " +
         (data.rpcConnected ? "border-emerald-500/40 text-emerald-400" : "border-amber-500/40 text-amber-400");
 
@@ -708,44 +716,36 @@
       const pct = Number(s.contextUsedPct || 0);
       const compPct = Number(s.compactionUsedPct || 0);
 
-      document.getElementById("ctxPct").textContent = pct.toFixed(2) + "%";
-      document.getElementById("ctxTokens").textContent = fmtNum(s.contextUsed) + " / " + fmtCompact(maxPhys);
+      document.getElementById("ctxTokens").textContent =
+        fmtCompact(s.contextUsed) + " / " + fmtCompact(maxPhys) + " · " + pct.toFixed(1) + "%";
       document.getElementById("ctxPhysBar").style.width = Math.min(100, pct).toFixed(2) + "%";
       document.getElementById("tick200kPhys").style.left = Math.min(100, (200000 / maxPhys) * 100).toFixed(2) + "%";
       document.getElementById("tick256kPhys").style.left = Math.min(100, (compLimit / maxPhys) * 100).toFixed(2) + "%";
-      document.getElementById("ctxPhysRemain").textContent = tr("physRemain") + fmtCompact(s.contextRemaining);
+      const tick200kComp = document.getElementById("tick200kComp");
+      tick200kComp.style.left = Math.min(100, (200000 / compLimit) * 100).toFixed(2) + "%";
+      tick200kComp.style.display = compLimit > 200000 ? "" : "none";
 
+      const level = compPct > 85 ? "rose" : compPct > 60 ? "amber" : "emerald";
       const ctxBar = document.getElementById("ctxBar");
       ctxBar.style.width = Math.min(100, compPct).toFixed(1) + "%";
-      const statusBadge = document.getElementById("ctxStatusBadge");
+      ctxBar.className = "h-full transition-all duration-300 bg-" + level + "-500";
       const ctxRemainEl = document.getElementById("ctxRemain");
-      if (compPct > 85) {
-        ctxBar.className = "h-full transition-all duration-300 bg-rose-500";
-        ctxRemainEl.className = "font-semibold text-rose-400";
-        statusBadge.className = "px-2 py-0.5 rounded text-[11px] font-medium bg-rose-500/15 text-rose-400 border border-rose-500/30";
-        statusBadge.textContent = tr("compDanger") + " (" + compPct.toFixed(1) + "%)";
-      } else if (compPct > 60) {
-        ctxBar.className = "h-full transition-all duration-300 bg-amber-500";
-        ctxRemainEl.className = "font-semibold text-amber-400";
-        statusBadge.className = "px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30";
-        statusBadge.textContent = tr("compWarn") + " (" + compPct.toFixed(1) + "%)";
-      } else {
-        ctxBar.className = "h-full transition-all duration-300 bg-emerald-500";
-        ctxRemainEl.className = "font-semibold text-emerald-400";
-        statusBadge.className = "px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30";
-        statusBadge.textContent = tr("compSafe");
-      }
-      ctxRemainEl.textContent = fmtCompact(s.contextUsed) + " / " + fmtCompact(compLimit) + " (" + compPct.toFixed(1) + "%)";
-      document.getElementById("ctxCompRemain").textContent = tr("compRemain") + fmtCompact(s.compactionRemaining);
+      ctxRemainEl.className = "text-sm font-bold tabular-nums text-" + level + "-400";
+      ctxRemainEl.textContent = fmtCompact(s.contextUsed) + " / " + fmtCompact(compLimit) + " · " + compPct.toFixed(1) + "%";
+      const statusBadge = document.getElementById("ctxStatusBadge");
+      statusBadge.className = "px-2 py-0.5 rounded text-[11px] font-medium bg-" + level + "-500/15 text-" + level + "-400 border border-" + level + "-500/30";
+      statusBadge.textContent = tr(level === "rose" ? "statusDanger" : level === "amber" ? "statusWarn" : "statusSafe");
+      document.getElementById("ctxCompRemain").textContent = tr("compLeft", { n: fmtCompact(s.compactionRemaining) });
       const cpCount = Number(s.checkpointCount || 0);
-      document.getElementById("turnCountBadge").textContent = (s.turnCount || 0) + tr("turnUnit") + (cpCount > 0 ? (tr("compactedCount") + cpCount + tr("timesUnit")) : "");
+      document.getElementById("turnCountBadge").textContent =
+        tr("turnCount", { n: s.turnCount || 0 }) + (cpCount > 0 ? tr("compactedCount", { n: cpCount }) : "");
 
       const hitRate = Number(s.lastCacheHitRate || 0);
       document.getElementById("cacheRate").textContent = hitRate.toFixed(1) + "%";
-      document.getElementById("cacheTokens").textContent = tr("hitPrefix") + fmtNum(s.lastCachedTokens);
+      document.getElementById("cacheTokens").textContent = tr("cached", { n: fmtNum(s.lastCachedTokens) });
       document.getElementById("cacheBar").style.width = Math.min(100, hitRate).toFixed(1) + "%";
-      document.getElementById("uncachedTokens").textContent = tr("newPrefix") + fmtCompact(s.lastUncachedTokens);
-      document.getElementById("sessionCacheRate").textContent = tr("sessionPrefix") + Number(s.sessionCacheHitRate || 0).toFixed(1) + "%";
+      document.getElementById("uncachedTokens").textContent = tr("newTokens", { n: fmtCompact(s.lastUncachedTokens) });
+      document.getElementById("sessionCacheRate").textContent = tr("sessionRate", { n: Number(s.sessionCacheHitRate || 0).toFixed(1) });
 
       const e2eTps = Number(s.lastE2eTps || 0);
       const decTps = Number(s.lastDecodeTps || 0);
@@ -754,50 +754,48 @@
       document.getElementById("tpsModeLabel").textContent = e2eTps > 0 ? tr("modeE2e") : tr("modeDec");
       document.getElementById("mainTps").textContent = primaryTps > 0 ? primaryTps.toFixed(1) + " tok/s" : "-- tok/s";
       const subParts = [];
-      if (decTps > 0) subParts.push(tr("decLabel") + decTps.toFixed(1));
-      if (visTps > 0 && Number(s.lastThinkTokens || 0) > 0) subParts.push(tr("visLabel") + visTps.toFixed(1));
+      if (e2eTps > 0 && decTps > 0) subParts.push(tr("decode", { n: decTps.toFixed(1) }));
+      if (visTps > 0 && Number(s.lastThinkTokens || 0) > 0) subParts.push(tr("visible", { n: visTps.toFixed(1) }));
       document.getElementById("subTps").textContent = subParts.join(" · ");
       const avgE2e = Number(s.avgE2eTps || 0);
       const avgDec = Number(s.avgDecodeTps || 0);
-      document.getElementById("avgTps").textContent =
-        tr("avgPrefix") + (avgE2e > 0 ? avgE2e.toFixed(1) : avgDec.toFixed(1)) +
-        (avgDec > 0 && avgE2e > 0 ? (" (" + tr("decLabel") + avgDec.toFixed(0) + ")") : " tok/s");
-      document.getElementById("peakTps").textContent = tr("peakPrefix") + Number(s.peakE2eTps || s.peakTps || 0).toFixed(1);
+      document.getElementById("avgTps").textContent = tr("avg", { n: (avgE2e > 0 ? avgE2e : avgDec).toFixed(1) });
+      document.getElementById("peakTps").textContent = tr("peak", { n: Number(s.peakE2eTps || s.peakTps || 0).toFixed(1) });
 
+      // Without RPC there is no TTFT and no thinking split; show only what the data has.
       document.getElementById("ttftVal").textContent = s.lastTtftSec > 0
-        ? ("TTFT: " + Number(s.lastTtftSec).toFixed(2) + "s")
-        : (s.lastE2eSec > 0 ? (tr("durPrefix") + Number(s.lastE2eSec).toFixed(1) + "s") : "TTFT: --");
-      document.getElementById("outTokens").textContent = tr("lastOutPrefix") + fmtNum(s.lastOutTokens);
-      document.getElementById("thinkRespSplit").textContent = s.lastThinkTokens > 0
-        ? (tr("thinkPrefix") + fmtCompact(s.lastThinkTokens) + tr("respPrefix") + fmtCompact(s.lastRespTokens))
-        : (tr("respToolPrefix") + fmtCompact(s.lastOutTokens));
-      document.getElementById("totalOutTokens").textContent = s.avgTtftSec > 0
-        ? (tr("avgTtftPrefix") + Number(s.avgTtftSec).toFixed(2) + "s")
-        : (tr("streamDurPrefix") + Number(s.lastStreamSec || s.lastE2eSec || 0).toFixed(1) + "s");
+        ? tr("ttft", { n: Number(s.lastTtftSec).toFixed(2) })
+        : (s.lastE2eSec > 0 ? tr("totalTime", { n: Number(s.lastE2eSec).toFixed(1) }) : "");
+      document.getElementById("outTokens").textContent = tr("outTokens", { n: fmtNum(s.lastOutTokens) });
+      const thinkResp = s.lastThinkTokens > 0
+        ? tr("thinkResp", { a: fmtCompact(s.lastThinkTokens), b: fmtCompact(s.lastRespTokens) })
+        : "";
+      const avgTtft = s.avgTtftSec > 0 ? tr("avgTtft", { n: Number(s.avgTtftSec).toFixed(2) }) : "";
+      document.getElementById("thinkRespSplit").textContent = thinkResp;
+      document.getElementById("avgTtft").textContent = avgTtft;
+      document.getElementById("lastTurnFooter").style.display = thinkResp || avgTtft ? "" : "none";
 
-      document.getElementById("sessionTotalBadge").textContent = fmtCompact(s.sessionTotalTokens) + " tok · " + fmtUsd(s.totalCostUsd);
-      document.getElementById("sumAllTokens").textContent = fmtNum(s.sessionTotalTokens);
-      document.getElementById("sumNetTokens").textContent = fmtCompact(s.sessionNetTokens);
+      document.getElementById("sessionTotalBadge").textContent = tr("sessionTokens", { n: fmtCompact(s.sessionTotalTokens) });
       document.getElementById("sumInTokens").textContent = fmtNum(s.totalInputTokens);
       document.getElementById("sumInSplit").textContent =
-        tr("inSplitPrefix") + fmtCompact(s.totalInCached) + tr("inSplitMid") + fmtCompact(s.totalInUncached);
+        tr("inSplit", { a: fmtCompact(s.totalInCached), b: fmtCompact(s.totalInUncached) });
       document.getElementById("sumOutTokens").textContent = fmtNum(s.totalOutTokens);
-      document.getElementById("sumOutSplit").textContent =
-        tr("outSplitPrefix") + fmtCompact(s.totalThinkTokens) + tr("outSplitMid") + fmtCompact(s.totalRespTokens);
+      document.getElementById("sumOutSplit").textContent = s.totalThinkTokens > 0
+        ? tr("outSplit", { a: fmtCompact(s.totalThinkTokens), b: fmtCompact(s.totalRespTokens) })
+        : "";
 
       document.getElementById("pricingModelTag").textContent = pricingSelect.value === "auto" && s.modelCount > 1
-        ? (currentLang === "zh" ? ("多模型分别计价 (" + s.modelCount + " 个模型)") : ("Per-model pricing (" + s.modelCount + " models)"))
+        ? tr("multiModelTag", { n: s.modelCount })
         : (s.pricingProfileLabel || "");
       document.getElementById("costTotalUsd").textContent = fmtUsd(s.totalCostUsd);
       const hiCount = Number(s.highTierTurnCount || 0);
       document.getElementById("costLastTurn").textContent =
-        tr("lastTurnCostPrefix") + fmtUsd(s.lastTurnCostUsd) + (hiCount > 0 ? (" · >200k: " + hiCount + (currentLang === "zh" ? "轮" : "t")) : "");
+        tr("lastTurnCost", { n: fmtUsd(s.lastTurnCostUsd) }) + (hiCount > 0 ? (" · " + tr("highTierTurns", { n: hiCount })) : "");
       document.getElementById("costSplitUsd").textContent = fmtUsd(s.totalInputCostUsd);
       document.getElementById("costDetailSplit").textContent = fmtUsd(s.totalOutputCostUsd);
-      document.getElementById("costSavedUsd").textContent =
-        tr("savedPrefix") + fmtUsd(s.savedByCacheUsd) + " (-" + Number(s.savedByCachePct || 0).toFixed(1) + "%)";
+      document.getElementById("costSavedUsd").textContent = fmtUsd(s.savedByCacheUsd);
       document.getElementById("costNoCacheUsd").textContent =
-        tr("noCachePrefix") + fmtUsd(s.noCacheTotalCostUsd);
+        tr("savedVsNoCache", { pct: Number(s.savedByCachePct || 0).toFixed(1), cost: fmtUsd(s.noCacheTotalCostUsd) });
 
       document.getElementById("convTitle").textContent = data.title || "";
       document.getElementById("updatedTime").textContent = new Date().toLocaleTimeString();
@@ -805,9 +803,10 @@
       renderModelStats(data.modelStats || []);
       renderChart(data.turns || []);
 
+      const turns = data.turns || [];
+      document.getElementById("turnTable").classList.toggle("no-ttft", !turns.some(function(t) { return t.ttftSec > 0; }));
       const tbody = document.getElementById("turnTableBody");
-      const revTurns = (data.turns || []).slice().reverse();
-      tbody.innerHTML = revTurns.map(function(t) {
+      tbody.innerHTML = turns.slice().reverse().map(function(t) {
         const outSplit = t.thinkTokens > 0
           ? (fmtNum(t.outTokens) + " <span class=\"muted\">(" + fmtCompact(t.thinkTokens) + "/" + fmtCompact(t.respTokens) + ")</span>")
           : fmtNum(t.outTokens);
@@ -817,16 +816,16 @@
         const tpsCell = t.e2eTps > 0
           ? (t.e2eTps.toFixed(1) + (t.decodeTps > 0 ? " <span class=\"muted\">(" + t.decodeTps.toFixed(0) + ")</span>" : ""))
           : (t.decodeTps > 0 ? t.decodeTps.toFixed(1) : "-");
-        const costCell = fmtUsd(t.costUsd || 0) + (t.isHighTier ? " <span class=\"text-amber-400\" title=\">200k Tier\">↑</span>" : "");
+        const costCell = fmtUsd(t.costUsd || 0) + (t.isHighTier ? " <span class=\"text-amber-400\" title=\"" + esc(tr("highTierTitle")) + "\">↑</span>" : "");
         const modelCell = "<span class=\"muted\" title=\"" + esc((t.modelId || t.model || "") + " · " + (t.pricingProfileLabel || "")) + "\">" + esc(shortModel(t.model || t.modelId)) + "</span>";
         return "<tr>" +
           "<td class=\"font-medium\">#" + t.turn + "</td>" +
-          "<td>" + modelCell + "</td>" +
+          "<td class=\"wide-only\">" + modelCell + "</td>" +
           "<td>" + fmtCompact(t.contextUsed) + "</td>" +
-          "<td class=\"text-sky-400\">" + t.cacheHitRate.toFixed(1) + "%</td>" +
-          "<td>" + outSplit + "</td>" +
-          "<td class=\"text-amber-400\">" + (t.ttftSec > 0 ? t.ttftSec.toFixed(2) + "s" : "-") + "</td>" +
-          "<td>" + durCell + "</td>" +
+          "<td class=\"wide-only text-sky-400\">" + t.cacheHitRate.toFixed(1) + "%</td>" +
+          "<td class=\"wide-only\">" + outSplit + "</td>" +
+          "<td class=\"wide-only col-ttft text-amber-400\">" + (t.ttftSec > 0 ? t.ttftSec.toFixed(2) + "s" : "-") + "</td>" +
+          "<td class=\"wide-only\">" + durCell + "</td>" +
           "<td class=\"font-semibold text-violet-400\">" + tpsCell + "</td>" +
           "<td class=\"text-emerald-400\">" + costCell + "</td>" +
         "</tr>";
