@@ -1,132 +1,131 @@
 <div align="center">
-  <img src="assets/logo.svg" width="108" height="108" alt="Context & TPS Monitor Logo" />
-  <h1>Antigravity Context & TPS Monitor</h1>
+  <img src="assets/logo.svg" width="96" height="96" alt="agy-pulse logo" />
+  <h1>agy-pulse</h1>
+  <p><strong>在 Google Antigravity 侧栏里查看 Context 窗口、Prompt Cache、费用和延迟。</strong></p>
   <p>
-    <strong>面向 Google Antigravity 2.0 的原生 Sidecar UI 扩展与插件</strong><br/>
-    实时监控双轨 Context 窗口水位（<code>1.05M</code> 物理窗口 & <code>256k</code> 自动压缩线）、Prompt Cache 缓存命中率、分模型 API 费用与缓存立省估算（含 <code>&gt;200k</code> 阶梯翻倍计价）、首字延迟（TTFT）以及体感 E2E / 流式 Decode TPS。
+    <a href="https://github.com/evenluo/agy-pulse/actions/workflows/ci.yml"><img src="https://github.com/evenluo/agy-pulse/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+    <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg" alt="Node.js >= 20" />
+    <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="Zero dependencies" />
   </p>
-  <p>
-    <a href="README.md"><strong>🌐 English Documentation (README.md)</strong></a> ·
-    <a href="#快速安装"><strong>⚡ 快速安装</strong></a> ·
-    <a href="#核心特性"><strong>✨ 核心特性</strong></a> ·
-    <a href="#架构设计"><strong>🏗️ 架构设计</strong></a>
-  </p>
+  <p><a href="README.md">English</a></p>
 </div>
 
----
+agy-pulse 是一个原生 [Antigravity Sidecar](#工作原理)。它针对当前对话显示三类信息：
 
-## 为什么需要这个扩展？
+- **离自动压缩还有多远。** Antigravity 在约 256k Token 时压缩上下文，远低于模型的 1M 窗口。agy-pulse 同时显示这两条线，以及开始按长上下文价格计费的 200k 线。
+- **按 API 标价折算的会话费用。** 按模型分别计算，包含 >200k 阶梯价，并显示 Prompt Cache 节省的金额。
+- **时间花在哪里。** 首字延迟（TTFT）、端到端 TPS 和纯解码 TPS，并把 Thinking Token 与可见输出分开。
 
-在 **Google Antigravity 2.0** 中进行长链路多步 Agent 编程时，开发者最常遇到两个痛点：
-1. **“明明 Gemini 3.1 / 4 Pro 标称 1M Context，为什么到 20 多万 Token 就会触发自动压缩，或者 API 等效成本突然翻倍？”**
-   - Antigravity 内置的 Checkpointer 默认在 **`256k` Token** 附近触发上下文自动压缩；而 Gemini 与 Claude 官方 API 均在单轮输入超过 **`200k` Token** 时触发阶梯翻倍计价。
-2. **“当前回复变慢，到底慢在首字延迟（TTFT）、隐式思考（Thinking Tokens）过多，还是流式解码（Decode TPS）降速？”**
+它运行在 Antigravity 右侧辅助栏中，除 Node.js 外没有任何依赖，只读取本机数据。
 
-**Antigravity Context & TPS Monitor** 基于 Antigravity 2.0 原生 **Sidecar UI Extension (`SIDECAR_UI_ENTRYPOINT_AUX_PANE`)** 机制构建，直接内嵌在右侧辅助栏（Auxiliary Pane），**零外部依赖、100% 离线内联样式、自动同步宿主深浅色主题、支持中英双语一键切换**。
+<p align="center"><img src="docs/screenshot-zh.png" width="640" alt="agy-pulse 面板：Context 水位、速度、缓存命中率、分模型费用、趋势图和每轮明细" /></p>
 
----
+<sub>截图由 <code>test/fixtures/demo</code> 中的合成数据渲染。</sub>
 
-## ✨ 核心特性
+## 安装
 
-- **双轨 Context 窗口水位（Option A 严格对齐设计）**：
-  - **主轨（`1.05M` 物理窗口进度条）**：进度条宽度与物理窗口百分比严格 1:1 对齐，并内嵌 **`▲ 200k 阶梯价线 (19.1%)`** 与 **`▲ 256k 自动压缩线 (24.4%)`** 双标尺。
-  - **副轨（`256k` Checkpointer 自动压缩水位条）**：按压缩风险自动三色预警（`<60%` 绿色安全区 · `60–85%` 黄色预警 · `>85%` 红色即将压缩），并自动统计会话已发生的 `CHECKPOINT` 压缩次数。
-- **实时体感速度（E2E TPS）、纯流式解码（Decode TPS）与首字延迟（TTFT）**：
-  - 严格区分 **含 TTFT 的端到端体感速度（`E2E TPS`）**、**纯流式解码速度（`Decode TPS`）** 以及 **扣除 Thinking Token 后的可见正文速度（`Visible TPS`）**。
-  - 自动剔除异常中断轮次（`ERROR_MESSAGE`）与单包缓冲假峰值（`streamSec < 0.15s`），采用总 Token / 总有效耗时的时间加权均值。
-- **Prompt Cache 缓存命中率 & 分模型 API 费用精算（含 `>200k` 阶梯价）**：
-  - 自动识别会话中途切换模型（支持 **Gemini 3.1 / 4 Pro**、**Gemini 2.5 Pro**、**Gemini Flash**、**Claude Sonnet 4.x**、**Claude Opus 4.x**），按每一轮实际使用的模型与是否超过 `200k` 阶梯线分别计费。
-  - 直观展示分模型费用占比、吞吐分布，以及 **Prompt Cache 命中为你节省的真实美元金额与折扣比例**。
-- **RPC 毫秒级遥测 + 本地 Transcript JSONL 双源融合**：
-  - 在线时通过 Sidecar 注入的 `ANTIGRAVITY_LS_ADDRESS` 与 `ANTIGRAVITY_CSRF_TOKEN` 直连本地 Language Server (`GetCascadeTrajectoryGeneratorMetadata`) 获取毫秒级 TTFT 与流式耗时。
-  - 自动融合并支持回退读取 `~/.gemini/antigravity-*/brain/<id>/.system_generated/logs/transcript.jsonl`，可随时切换查看历史会话。
-
----
-
-## ⚡ 快速安装
-
-> **环境要求**：Node.js `>= 18.0.0`（仅使用 Node.js 标准库内置模块，无需 `npm install` 任何第三方依赖）。
-
-### 方式一：一行命令极速安装（推荐）
-
-克隆仓库并运行零依赖安装脚本（自动部署 Sidecar 并安全合并启用 `~/.gemini/config/config.json`，严格保留 `0600` 权限与原有配置）：
+需要 `PATH` 中有 Node.js 20 或更高版本。
 
 ```bash
-git clone https://github.com/evenluo/antigravity-context-monitor.git
-node antigravity-context-monitor/install.mjs
+git clone https://github.com/evenluo/agy-pulse.git
+node agy-pulse/install.mjs
 ```
 
-或者以**完整 Antigravity Plugin 插件包**模式安装（同时安装 UI Sidecar 与配套 Agent Skill）：
+安装脚本把 Sidecar 复制到 `~/.gemini/config/sidecars/context-monitor/`，并在 `~/.gemini/config/config.json` 中设置 `sidecars["context-monitor"].enabled = true`。该文件中的其他设置保持不变。如果该文件不是合法 JSON，安装脚本停止运行，不修改任何文件。
+
+其他安装方式：
+
+| 方式 | 命令 | 结果 |
+| :--- | :--- | :--- |
+| 插件包（Sidecar + Agent Skill） | `node agy-pulse/install.mjs --plugin` | 把仓库复制到 `~/.gemini/config/plugins/context-monitor/` 并启用。 |
+| Antigravity CLI | `agy plugin install https://github.com/evenluo/agy-pulse`，然后运行 `node ~/.gemini/config/plugins/<插件目录>/install.mjs` | 第二条命令启用已安装插件中的 Sidecar。 |
+| 按工作区 | 把仓库复制到项目的 `.agents/plugins/context-monitor/` | 打开该工作区的所有成员都会加载插件。 |
+
+安装脚本命令：
 
 ```bash
-node antigravity-context-monitor/install.mjs --plugin
+node install.mjs --status      # 查看安装和启用状态
+node install.mjs --uninstall   # 在 config.json 中关闭并删除已安装文件
+node install.mjs --help
 ```
 
-### 方式二：通过 Antigravity CLI (`agy`) 安装
+## 使用
+
+1. 首次安装后重启 Antigravity（或打开新窗口），使其发现 Sidecar。
+2. 打开辅助栏，选择 **Context & TPS**。也可以让 Agent “打开 Context & TPS 监控面板”；安装插件包后，Agent 会回复一个 `[Context & TPS](sidecar://...)` 链接。
+3. 用顶部控件跟随最新对话或选择其他对话、切换计价方案、切换中英文。
+
+## 工作原理
+
+Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。服务只监听 `127.0.0.1`，提供面板页面和 JSON 接口 `/api/metrics`。面板可见时每 2 秒轮询一次该接口。
+
+指标来自两个数据源：
+
+| 数据源 | 条件 | 提供 |
+| :--- | :--- | :--- |
+| Language Server RPC `GetCascadeTrajectoryGeneratorMetadata` | Antigravity 注入 `ANTIGRAVITY_LS_ADDRESS` 和 `ANTIGRAVITY_CSRF_TOKEN` | 毫秒级 TTFT 和流式耗时、Thinking 与正文 Token、缓存写入 Token、宿主的压缩阈值。徽标显示 **RPC**。 |
+| `~/.gemini/antigravity*/brain/<id>/.system_generated/logs/transcript.jsonl` | 始终可用 | 每轮 Token 用量、模型切换、`CHECKPOINT`（压缩）事件。耗时由步骤时间戳估算。徽标显示 **Transcript**。 |
+
+两个数据源都可用时，以 RPC 为准，Transcript 补充缺失字段。
+
+### 指标定义
+
+| 指标 | 定义 |
+| :--- | :--- |
+| Context 占用 | 最新一轮的输入 Token（缓存 + 未缓存）。 |
+| 物理窗口 | 1,048,576 Token。200k 和 256k 刻度分别标记价格阶梯和压缩阈值。 |
+| 压缩水位 | Context 占用 ÷ 压缩阈值（优先用 RPC 值，否则 256,000）。低于 60% 为绿色，60%–85% 为黄色，高于 85% 为红色。 |
+| 缓存命中率 | 缓存输入 ÷ 总输入，分最新一轮和整个会话。 |
+| E2E TPS | 输出 Token ÷（TTFT + 流式耗时），即体感速度。 |
+| Decode TPS | 输出 Token ÷ 流式耗时。流式耗时低于 0.15 秒的轮次视为整包缓冲，不参与计算。 |
+| 会话均值 | 有效轮次的总 Token ÷ 总秒数，避免短轮次拉偏结果。中断轮次（后接 `ERROR_MESSAGE`）不参与计算。 |
+| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。单轮输入超过 200k 时使用高阶梯价。“Cache 节省”与全部输入按未缓存计价的结果比较。 |
+
+价格表位于 [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs)。模型名按关键字映射到价格方案（`opus`、`sonnet`/`claude`、`flash`、`2.5`，其余按 Gemini 3.x Pro）。可以在计价下拉框中手动指定。
+
+## 配置
+
+| 变量 | 默认值 | 用途 |
+| :--- | :--- | :--- |
+| `ANTIGRAVITY_SIDECAR_WEB_PORT` | `18990` | 面板服务端口。Antigravity 为 Sidecar 设置该值。 |
+| `AGY_GEMINI_ROOT` | `~/.gemini` | Transcript 查找目录。 |
+| `AGY_CONFIG_DIR` | `~/.gemini/config` | 安装目标目录。`--config-dir <path>` 作用相同。 |
+
+## 隐私与安全
+
+- 服务只绑定 `127.0.0.1`，不向外发送数据。
+- 唯一的出站请求发往本机 Antigravity Language Server，使用 Antigravity 注入的 CSRF Token。安装脚本发送同类请求，使配置立即生效。
+- 面板把对话首条提示的前 80 个字符作为标题。能访问该端口的本机进程可以从 `/api/metrics` 读取相同数据。服务不检查 `Host` 请求头，因此使用 DNS rebinding 的网页也可能读取这些数据。
+- 页面不加载任何外部脚本、样式或字体。
+
+请通过 [GitHub Security Advisories](https://github.com/evenluo/agy-pulse/security/advisories/new) 私下报告漏洞。
+
+## 限制
+
+- 费用是按公开标价的估算，不反映你的 Antigravity 套餐、配额或协议价，厂商调价后会过时。
+- 没有 RPC 时，TTFT 和 Thinking/正文拆分不可用，耗时由 Transcript 步骤时间戳估算。
+- Transcript 格式和 RPC 属于 Antigravity 内部实现，宿主更新可能改变它们。
+- CI 覆盖 Linux 和 macOS，未在 Windows 上测试。
+
+## 排障
+
+| 现象 | 检查 |
+| :--- | :--- |
+| 没有 **Context & TPS** 标签 | 运行 `node install.mjs --status`。首次安装后重启 Antigravity。 |
+| 在 Antigravity 内徽标显示 **Transcript** | Language Server 没有响应。指标仍可用，精度较低。 |
+| 面板为空 | `~/.gemini/antigravity*/brain/` 下还没有 Transcript。先发送一条消息。 |
+| 出现两个面板 | 独立安装和插件安装同时启用。按需要的方式重新运行安装脚本，它会关闭另一项。 |
+
+## 开发
 
 ```bash
-agy plugin install https://github.com/evenluo/antigravity-context-monitor
-# 随后运行插件内置脚本开启 config.json 中的 sidecar 开关：
-node ~/.gemini/config/plugins/context-monitor/install.mjs
+npm test                                         # node:test，无需安装依赖
+AGY_GEMINI_ROOT=test/fixtures/demo npm start     # 用示例数据启动面板：http://127.0.0.1:18990
 ```
 
-### 方式三：团队代码库共享（`.agents/`）
+代码结构和价格更新方法见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-将本仓库放入项目根目录的 `.agents/plugins/context-monitor/`，团队成员打开项目即可自动加载。
+## 许可证
 
----
-
-## 🚀 使用方式
-
-1. 首次创建 Sidecar 目录后，**重启一次 Antigravity 2.0**（或重新打开窗口）以完成 Sidecar 注册。
-2. 在 Antigravity 2.0 右侧辅助栏（Auxiliary Pane）顶部标签页点击 **`Context & TPS`**，或者直接在聊天框对 Agent 说：
-   > *“打开 Context & TPS 监控面板”*
-   Agent 会自动调用内置 Skill 并输出一键打开胶囊 `[Context & TPS](sidecar://context-monitor/)`。
-3. 点击面板右上角的 **`EN` / `中文`** 按钮可随时切换中英文界面。
-
-### 常用维护命令
-
-```bash
-# 查看当前安装状态与 config.json 启用状态
-node install.mjs --status
-
-# 卸载并自动在 config.json 中关闭 Sidecar
-node install.mjs --uninstall
-```
-
----
-
-## 🏗️ 架构设计
-
-```text
-antigravity-context-monitor/
-├── plugin.json                         # Antigravity 标准插件清单
-├── install.mjs                         # 零依赖安装与 config.json 生命周期管理脚本
-├── assets/
-│   └── logo.svg                        # 预留 >10% 安全边距的高对比度方形 SVG 图标
-├── sidecars/
-│   └── context-monitor/
-│       ├── sidecar.json                # 声明 SIDECAR_UI_ENTRYPOINT_AUX_PANE 辅助栏视图
-│       └── server.mjs                  # 零依赖 Node.js 遥测服务与中英双语离线 UI
-├── skills/
-│   └── context-monitor/
-│       └── SKILL.md                    # 配套 Agent Skill（支持胶囊唤起与自动启用引导）
-└── test/
-    └── server.test.mjs                 # 自动化单元与集成测试套件 (node --test)
-```
-
----
-
-## 🧪 本地开发与测试
-
-```bash
-# 运行完整单元测试与集成测试
-npm test
-
-# 独立启动监控服务用于浏览器本地调试 (http://127.0.0.1:18990)
-npm start
-```
-
-## 📄 开源协议
-
-[MIT License](./LICENSE) © 2026 evenluo
+[MIT](LICENSE) © 2026 evenluo

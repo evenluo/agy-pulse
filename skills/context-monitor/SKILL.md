@@ -25,7 +25,13 @@ Inspect `~/.gemini/config/config.json` (or run `install.mjs --status` if present
 
 ## Step 2: Auto-Enable if Disabled
 
-Because Antigravity keeps newly discovered sidecars disabled until explicitly turned on in `config.json`, enable it via the Language Server RPC (or by running `node install.mjs` from the plugin root) if neither entry is enabled:
+Antigravity keeps newly discovered sidecars disabled until they are enabled in `config.json`. If neither entry is enabled, run the installer from the plugin root; it enables the matching sidecar and notifies the Language Server:
+
+```bash
+node install.mjs
+```
+
+If the installer is not available, enable the standalone sidecar through the Language Server RPC. The CSRF token stays in the environment; do not print it or paste it into the command:
 
 ```bash
 : "${ANTIGRAVITY_LS_ADDRESS:=localhost:5387}"

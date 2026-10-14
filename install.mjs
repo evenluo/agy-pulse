@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Antigravity Context & TPS Monitor — Zero-Dependency Installer & Lifecycle CLI
+ * agy-pulse installer: deploys the Context & TPS sidecar and toggles it in
+ * ~/.gemini/config/config.json. Zero dependencies.
  *
  * Supports:
  *   node install.mjs                 # Install/update standalone sidecar (or activate plugin if run inside plugins/<dir>)
@@ -13,16 +14,18 @@
 
 import {
   chmodSync,
-   copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,41 +44,42 @@ function parseArgs(argv) {
     else if (a === '--status') opts.mode = 'status';
     else if (a === '--uninstall' || a === 'uninstall') opts.mode = 'uninstall';
     else if (a === '--quiet' || a === '-q') opts.quiet = true;
-    else if (a === '--config-dir' && argv[i + 1]) {
+    else if (a === '--config-dir') {
+      if (!argv[i + 1]) throw new Error('--config-dir requires a path.');
       opts.configDir = resolve(argv[++i]);
     } else if (a === '--help' || a === '-h') {
       opts.mode = 'help';
+    } else {
+      throw new Error(`Unknown option: ${a}. Run with --help for usage.`);
     }
   }
   return opts;
 }
 
-function readJsonSafe(filePath) {
-  if (!existsSync(filePath)) return {};
+// A missing config.json starts empty. An unreadable one aborts the run, so the
+// installer never overwrites settings it could not parse.
+function readConfig(configPath) {
+  if (!existsSync(configPath)) return {};
+  const raw = readFileSync(configPath, 'utf-8');
   try {
-    return JSON.parse(readFileSync(filePath, 'utf-8'));
-  } catch {
-    return {};
+    return JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`${configPath} is not valid JSON (${err.message}). Fix it, then rerun.`);
   }
 }
 
 function writeConfigAtomic(configPath, data) {
-  const dir = dirname(configPath);
-  mkdirSync(dir, { recursive: true });
-  const tmpPath = `${configPath}.tmp.${process.pid}`;
+  mkdirSync(dirname(configPath), { recursive: true });
+  // Write through a symlinked config.json (dotfile managers) instead of replacing the link.
+  const targetPath = existsSync(configPath) ? realpathSync(configPath) : configPath;
+  const tmpPath = `${targetPath}.tmp.${process.pid}`;
   writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
   try {
     chmodSync(tmpPath, 0o600);
   } catch {
     // ignore on platforms without POSIX chmod
   }
-  copyFileSync(tmpPath, configPath);
-  try {
-    chmodSync(configPath, 0o600);
-  } catch {
-    // ignore
-  }
-  rmSync(tmpPath, { force: true });
+  renameSync(tmpPath, targetPath);
 }
 
 async function tryNotifyLanguageServer(patch) {
@@ -106,14 +110,38 @@ async function tryNotifyLanguageServer(patch) {
 }
 
 function detectContainingPluginDir(configDir) {
-  const pluginsRoot = resolve(configDir, 'plugins');
-  const selfDir = resolve(__dirname);
-  if (selfDir.startsWith(pluginsRoot + '/')) {
-    const rel = selfDir.slice(pluginsRoot.length + 1);
-    const seg = rel.split('/')[0];
-    if (seg) return seg;
+  const rel = relative(resolve(configDir, 'plugins'), resolve(__dirname));
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null;
+  return rel.split(sep)[0];
+}
+
+// Every config key under which this sidecar can be registered: the standalone
+// sidecar, and one per plugin directory holding this plugin, whatever its name
+// (`--plugin` uses `context-monitor`; `agy plugin install` may pick another).
+function sidecarKeys(configDir, containingPluginDir) {
+  const pluginsRoot = join(configDir, 'plugins');
+  const pluginDirs = new Set(['context-monitor']);
+  if (containingPluginDir) pluginDirs.add(containingPluginDir);
+  if (existsSync(pluginsRoot)) {
+    for (const d of readdirSync(pluginsRoot, { withFileTypes: true })) {
+      if (!d.isDirectory()) continue;
+      try {
+        const manifest = JSON.parse(readFileSync(join(pluginsRoot, d.name, 'plugin.json'), 'utf-8'));
+        if (manifest?.name === 'context-monitor') pluginDirs.add(d.name);
+      } catch {
+        // not a plugin, or not ours
+      }
+    }
   }
-  return null;
+  return ['context-monitor', ...[...pluginDirs].map((d) => `${d}/context-monitor`)];
+}
+
+// Enable `key` and disable every other registration, so only one panel shows.
+function enableOnly(cfg, key, keys) {
+  for (const k of keys) {
+    if (k !== key && cfg.sidecars[k]) cfg.sidecars[k].enabled = false;
+  }
+  cfg.sidecars[key] = { ...(cfg.sidecars[key] || {}), enabled: true };
 }
 
 export async function runCli(argv = process.argv.slice(2)) {
@@ -123,7 +151,7 @@ export async function runCli(argv = process.argv.slice(2)) {
   };
 
   if (opts.mode === 'help') {
-    log(`Usage: npx antigravity-context-monitor [options]
+    log(`Usage: node install.mjs [options]
 
 Options:
   --standalone       Install standalone sidecar to ~/.gemini/config/sidecars/context-monitor (default)
@@ -138,15 +166,17 @@ Options:
   const configPath = join(opts.configDir, 'config.json');
   const standaloneDir = join(opts.configDir, 'sidecars', 'context-monitor');
   const pluginInstallDir = join(opts.configDir, 'plugins', 'context-monitor');
+  const containingPluginDir = detectContainingPluginDir(opts.configDir);
+  const keys = sidecarKeys(opts.configDir, containingPluginDir);
 
   if (opts.mode === 'status') {
-    const cfg = readJsonSafe(configPath);
+    const cfg = readConfig(configPath);
     const standaloneFiles = existsSync(join(standaloneDir, 'server.mjs'));
     const pluginFiles = existsSync(join(pluginInstallDir, 'plugin.json'));
     const standaloneEnabled = Boolean(cfg?.sidecars?.['context-monitor']?.enabled);
-    const pluginSidecarEnabled = Boolean(
-      cfg?.sidecars?.['context-monitor/context-monitor']?.enabled
-    );
+    const pluginSidecarEnabled = keys
+      .filter((k) => k !== 'context-monitor')
+      .some((k) => Boolean(cfg?.sidecars?.[k]?.enabled));
     const status = {
       configPath,
       standaloneInstalled: standaloneFiles,
@@ -159,13 +189,10 @@ Options:
   }
 
   if (opts.mode === 'uninstall') {
-    const cfg = readJsonSafe(configPath);
+    const cfg = readConfig(configPath);
     cfg.sidecars = cfg.sidecars || {};
-    if (cfg.sidecars['context-monitor']) {
-      cfg.sidecars['context-monitor'].enabled = false;
-    }
-    if (cfg.sidecars['context-monitor/context-monitor']) {
-      cfg.sidecars['context-monitor/context-monitor'].enabled = false;
+    for (const key of keys) {
+      if (cfg.sidecars[key]) cfg.sidecars[key].enabled = false;
     }
     writeConfigAtomic(configPath, cfg);
     await tryNotifyLanguageServer({ sidecars: cfg.sidecars });
@@ -181,24 +208,20 @@ Options:
   }
 
   // Determine effective install mode
-  const containingPluginDir = detectContainingPluginDir(opts.configDir);
   let targetMode = opts.mode;
   if (targetMode === 'auto') {
     targetMode = containingPluginDir ? 'in-place-plugin' : 'standalone';
   }
 
   const srcSidecarDir = join(__dirname, 'sidecars', 'context-monitor');
-  const cfg = readJsonSafe(configPath);
+  const cfg = readConfig(configPath);
   cfg.sidecars = cfg.sidecars || {};
   cfg.plugins = cfg.plugins || {};
 
   if (targetMode === 'in-place-plugin') {
     const sidecarKey = `${containingPluginDir}/context-monitor`;
     cfg.plugins[containingPluginDir] = { ...(cfg.plugins[containingPluginDir] || {}), enabled: true };
-    cfg.sidecars[sidecarKey] = { ...(cfg.sidecars[sidecarKey] || {}), enabled: true };
-    if (cfg.sidecars['context-monitor']) {
-      cfg.sidecars['context-monitor'].enabled = false;
-    }
+    enableOnly(cfg, sidecarKey, keys);
     writeConfigAtomic(configPath, cfg);
     await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars });
     log(`[context-monitor] Activated plugin sidecar: ${sidecarKey}`);
@@ -212,6 +235,7 @@ Options:
       'package.json',
       'install.mjs',
       'assets',
+      'docs',
       'sidecars',
       'skills',
       'README.md',
@@ -226,13 +250,7 @@ Options:
       }
     }
     cfg.plugins['context-monitor'] = { ...(cfg.plugins['context-monitor'] || {}), enabled: true };
-    cfg.sidecars['context-monitor/context-monitor'] = {
-      ...(cfg.sidecars['context-monitor/context-monitor'] || {}),
-      enabled: true,
-    };
-    if (cfg.sidecars['context-monitor']) {
-      cfg.sidecars['context-monitor'].enabled = false;
-    }
+    enableOnly(cfg, 'context-monitor/context-monitor', keys);
     writeConfigAtomic(configPath, cfg);
     await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars });
     log(`[context-monitor] Installed plugin bundle to ${pluginInstallDir}`);
@@ -247,18 +265,9 @@ Options:
 
   // Default: 'standalone' mode -> ~/.gemini/config/sidecars/context-monitor
   mkdirSync(standaloneDir, { recursive: true });
-  copyFileSync(join(srcSidecarDir, 'sidecar.json'), join(standaloneDir, 'sidecar.json'));
-  copyFileSync(join(srcSidecarDir, 'server.mjs'), join(standaloneDir, 'server.mjs'));
-  try {
-    chmodSync(join(standaloneDir, 'server.mjs'), 0o755);
-  } catch {
-    // ignore
-  }
+  cpSync(srcSidecarDir, standaloneDir, { recursive: true, force: true });
 
-  cfg.sidecars['context-monitor'] = { ...(cfg.sidecars['context-monitor'] || {}), enabled: true };
-  if (cfg.sidecars['context-monitor/context-monitor']) {
-    cfg.sidecars['context-monitor/context-monitor'].enabled = false;
-  }
+  enableOnly(cfg, 'context-monitor', keys);
   writeConfigAtomic(configPath, cfg);
   await tryNotifyLanguageServer({ sidecars: cfg.sidecars });
 
@@ -273,10 +282,10 @@ Options:
 }
 
 const isMain =
-  process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+  process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
 if (isMain) {
   runCli().catch((err) => {
-    console.error('[context-monitor] Installation failed:', err);
+    console.error(`[context-monitor] Failed: ${err.message}`);
     process.exit(1);
   });
 }

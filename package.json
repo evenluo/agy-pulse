@@ -1,19 +1,17 @@
 {
-  "name": "antigravity-context-monitor",
+  "name": "agy-pulse",
   "version": "1.0.0",
-  "description": "Native Antigravity 2.0 Sidecar UI Extension & Plugin for real-time Context Window watermark (1.05M / 256k compaction), Cache Hit Rate, Per-Model API Cost (>200k tier), TTFT, and E2E/Decode TPS monitoring.",
+  "description": "Context window, prompt cache, cost, and TTFT/TPS panel for Google Antigravity, running as a native zero-dependency sidecar.",
   "type": "module",
-  "main": "sidecars/context-monitor/server.mjs",
   "bin": {
-    "antigravity-context-monitor": "./install.mjs",
-    "agy-context-monitor": "./install.mjs"
+    "agy-pulse": "./install.mjs"
   },
   "scripts": {
+    "test": "node --test",
     "start": "node sidecars/context-monitor/server.mjs",
-    "test": "node --test test/server.test.mjs",
     "setup": "node install.mjs",
-    "uninstall-sidecar": "node install.mjs --uninstall",
-    "status": "node install.mjs --status"
+    "status": "node install.mjs --status",
+    "uninstall-sidecar": "node install.mjs --uninstall"
   },
   "keywords": [
     "antigravity",
@@ -32,23 +30,25 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/evenluo/antigravity-context-monitor.git"
+    "url": "git+https://github.com/evenluo/agy-pulse.git"
   },
   "bugs": {
-    "url": "https://github.com/evenluo/antigravity-context-monitor/issues"
+    "url": "https://github.com/evenluo/agy-pulse/issues"
   },
-  "homepage": "https://github.com/evenluo/antigravity-context-monitor#readme",
+  "homepage": "https://github.com/evenluo/agy-pulse#readme",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20"
   },
   "files": [
     "plugin.json",
     "install.mjs",
     "assets/",
+    "docs/",
     "sidecars/",
     "skills/",
     "README.md",
     "README_CN.md",
+    "CHANGELOG.md",
     "LICENSE"
   ]
 }
