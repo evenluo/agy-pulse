@@ -96,7 +96,7 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 
 - 服务只绑定 `127.0.0.1`，不向外发送数据。
 - 唯一的出站请求发往本机 Antigravity Language Server，使用 Antigravity 注入的 CSRF Token。安装脚本发送同类请求，使配置立即生效。
-- 面板把对话首条提示的前 80 个字符作为标题。能访问该端口的本机进程可以从 `/api/metrics` 读取相同数据。服务不检查 `Host` 请求头，因此使用 DNS rebinding 的网页也可能读取这些数据。
+- 面板把对话首条提示的前 80 个字符作为标题。能访问该端口的本机进程可以从 `/api/metrics` 读取相同数据。服务只响应 `Host` 为 `127.0.0.1`、`localhost` 或 `[::1]` 的请求，因此网页无法通过 DNS rebinding 读取这些数据。
 - 页面不加载任何外部脚本、样式或字体。
 
 请通过 [GitHub Security Advisories](https://github.com/evenluo/agy-pulse/security/advisories/new) 私下报告漏洞。
@@ -115,6 +115,7 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 | 没有 **Context & TPS** 标签 | 运行 `node install.mjs --status`。首次安装后重启 Antigravity。 |
 | 在 Antigravity 内徽标显示 **Transcript** | Language Server 没有响应。指标仍可用，精度较低。 |
 | 面板为空 | `~/.gemini/antigravity*/brain/` 下还没有 Transcript。先发送一条消息。 |
+| 面板显示 `Forbidden host` | 请求使用了 `127.0.0.1`、`localhost`、`[::1]` 以外的主机名。Sidecar 日志会记录被拒绝的 `Host`，请附上该值[提交 Issue](https://github.com/evenluo/agy-pulse/issues)。 |
 | 出现两个面板 | 独立安装和插件安装同时启用。按需要的方式重新运行安装脚本，它会关闭另一项。 |
 
 ## 开发
