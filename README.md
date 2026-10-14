@@ -1,144 +1,131 @@
 <div align="center">
-  <img src="assets/logo.svg" width="108" height="108" alt="Context & TPS Monitor Logo" />
-  <h1>Antigravity Context & TPS Monitor</h1>
+  <img src="assets/logo.svg" width="96" height="96" alt="agy-pulse logo" />
+  <h1>agy-pulse</h1>
+  <p><strong>Context window, prompt cache, cost, and latency for Google Antigravity, in the side pane.</strong></p>
   <p>
-    <strong>Native Sidecar UI Extension & Plugin for Google Antigravity 2.0</strong><br/>
-    Real-time dual-track Context Window watermark (<code>1.05M</code> physical & <code>256k</code> auto-compaction), Prompt Cache hit rate, per-model API cost & cache savings (<code>&gt;200k</code> tiered pricing), TTFT, and E2E / Decode TPS telemetry.
+    <a href="https://github.com/evenluo/agy-pulse/actions/workflows/ci.yml"><img src="https://github.com/evenluo/agy-pulse/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+    <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg" alt="Node.js >= 20" />
+    <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="Zero dependencies" />
   </p>
-  <p>
-    <a href="README_CN.md"><strong>🇨🇳 中文文档 (Chinese README)</strong></a> ·
-    <a href="#quick-install"><strong>⚡ Quick Install</strong></a> ·
-    <a href="#key-features"><strong>✨ Features</strong></a> ·
-    <a href="#architecture"><strong>🏗️ Architecture</strong></a>
-  </p>
+  <p><a href="README_CN.md">中文文档</a></p>
 </div>
 
----
+agy-pulse is a native [Antigravity sidecar](#how-it-works) that shows, for the conversation you are in:
 
-## Why This Exists
+- **How close you are to auto-compaction.** Antigravity compacts context around 256k tokens, well below the model's 1M window. agy-pulse shows both limits and the 200k line above which long-context API prices apply.
+- **What the session would cost at API list prices**, per model, including the >200k price tier and the amount prompt caching saved.
+- **Where the time goes.** Time to first token (TTFT), end-to-end TPS, and pure decode TPS, with thinking tokens split from visible output.
 
-When working on deep agentic sessions in **Google Antigravity 2.0**, two questions come up constantly:
-1. **"Why did my conversation auto-compact at ~250k tokens when Gemini 3.1 / 4 Pro has a 1M context window — and why did API cost jump past 200k?"**
-   - Antigravity's checkpointer triggers automatic context compaction around **256k tokens**, while Gemini & Claude APIs double per-token billing above **200k tokens** in a single turn.
-2. **"Is the model currently slow because of First-Token Latency (TTFT), thinking token overhead, or streaming decode speed?"**
+It runs inside Antigravity's auxiliary pane, has no dependencies beyond Node.js, and reads only local data.
 
-**Antigravity Context & TPS Monitor** lives directly inside the **Antigravity 2.0 Auxiliary Side Pane (`SIDECAR_UI_ENTRYPOINT_AUX_PANE`)** with zero external dependencies, 100% offline CSS rendering, automatic dark/light theme synchronization, and one-click `EN / 中文` switching.
+<p align="center"><img src="docs/screenshot-en.png" width="640" alt="agy-pulse panel showing context watermark, speed, cache hit rate, per-model cost, trend chart, and per-turn table" /></p>
 
----
+<sub>Screenshot rendered from the synthetic fixture in <code>test/fixtures/demo</code>.</sub>
 
-## ✨ Key Features
+## Install
 
-- **Dual-Track Context Window Watermark**:
-  - **Track 1 (`1.05M` Physical Window)**: Strictly aligned with physical context percentage, with visual tick markers at **`200k` (19.1% API price tier)** and **`256k` (24.4% auto-compaction threshold)**.
-  - **Track 2 (`256k` Checkpointer Compaction Bar)**: Color-coded safety status (`<60%` Safe Green · `60–85%` Warning Amber · `>85%` Imminent Compaction Rose) plus automatic compaction count tracking (`CHECKPOINT` events).
-- **Real-Time E2E TPS, Stream Decode TPS & TTFT**:
-  - Distinguishes **End-to-End Perceived Speed (`E2E TPS`, including TTFT)**, **Pure Streaming Speed (`Decode TPS`)**, and **Visible Response TPS (excluding Thinking tokens)**.
-  - Automatically filters out aborted/interrupted turns (`ERROR_MESSAGE`) and single-chunk buffer spikes (`streamSec < 0.15s`) using time-weighted session averages.
-- **Prompt Cache Hit Rate & Per-Model API Billing (`>200k` Tiered)**:
-  - Tracks cached vs. uncached input tokens per turn and across the entire session.
-  - Automatically detects mid-conversation model switches (e.g. **Gemini 3.1 / 4 Pro**, **Gemini 2.5 Pro**, **Gemini Flash**, **Claude Sonnet 4.x**, **Claude Opus 4.x**) and computes per-model cost shares, `>200k` high-tier turn counts, and exact USD saved by Prompt Caching.
-- **Hybrid Dual-Source Telemetry (RPC + Local Transcript)**:
-  - Connects natively to Antigravity's Language Server (`GetCascadeTrajectoryGeneratorMetadata`) via injected sidecar environment variables (`ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CSRF_TOKEN`) for millisecond-level TTFT and streaming durations.
-  - Seamlessly merges and falls back to `~/.gemini/antigravity-*/brain/<id>/.system_generated/logs/transcript.jsonl` for historical sessions and offline inspection.
-
----
-
-## 📊 Comparison with Existing Community Tools
-
-| Feature | **Antigravity Context & TPS Monitor** (This Repo) | `Antigravity-Context-Window-Monitor` | `antigravity-token-dashboard` | `codeburn` |
-| :--- | :--- | :--- | :--- | :--- |
-| **Host Surface** | **Native Antigravity 2.0 Sidecar UI Extension** (Aux Pane + `sidecar://` pill) | VS Code `.vsix` Extension (IDE only) | External Python server + macOS Menu Bar | External CLI |
-| **LS Connection** | **Native Injected Env (`ANTIGRAVITY_LS_ADDRESS`)** + JSONL fallback | OS process scanning (`ps`/`lsof`/`wmic`) | Offline SQLite polling | OS process scanning |
-| **Context Display** | **Dual-Track (`1.05M` Physical + `256k` Compaction + `200k` Tick)** | Single progress bar | Quota burn gauges | CLI summary table |
-| **Speed Telemetry** | **Live TTFT + E2E TPS + Decode TPS + Think/Resp Split** | Step timestamps | Token burn velocity | None |
-| **Runtime Dependencies** | **Zero (`node:http`, `node:fs`, 100% offline inline CSS)** | VS Code Extension Host | Python 3.10+ | Node.js CLI packages |
-
----
-
-## ⚡ Quick Install
-
-> **Prerequisite**: Node.js `>= 18.0.0` (uses built-in modules only; zero `npm install` dependencies required).
-
-### Option 1: One-Line Quick Setup (Recommended)
-
-Clone and run the zero-dependency installer, which deploys the sidecar and automatically enables it in `~/.gemini/config/config.json` (preserving `0600` file permissions and existing settings):
+Requires Node.js 20 or later on your `PATH`.
 
 ```bash
-git clone https://github.com/evenluo/antigravity-context-monitor.git
-node antigravity-context-monitor/install.mjs
+git clone https://github.com/evenluo/agy-pulse.git
+node agy-pulse/install.mjs
 ```
 
-Or install as a full **Antigravity Plugin bundle** (including both the UI sidecar and the companion Agent Skill):
+This copies the sidecar to `~/.gemini/config/sidecars/context-monitor/` and sets `sidecars["context-monitor"].enabled = true` in `~/.gemini/config/config.json`. Other settings in that file stay as they are. If the file is not valid JSON, the installer stops and changes nothing.
+
+Other ways to install:
+
+| Mode | Command | Result |
+| :--- | :--- | :--- |
+| Plugin bundle (sidecar + agent skill) | `node agy-pulse/install.mjs --plugin` | Copies the repo to `~/.gemini/config/plugins/context-monitor/` and enables it. |
+| Antigravity CLI | `agy plugin install https://github.com/evenluo/agy-pulse`, then `node ~/.gemini/config/plugins/<plugin-dir>/install.mjs` | The second command enables the sidecar of the installed plugin. |
+| Per workspace | Copy the repo to `.agents/plugins/context-monitor/` in your project | Everyone who opens the workspace gets the plugin. |
+
+Installer commands:
 
 ```bash
-node antigravity-context-monitor/install.mjs --plugin
+node install.mjs --status      # show what is installed and enabled
+node install.mjs --uninstall   # disable in config.json and remove installed files
+node install.mjs --help
 ```
 
-### Option 2: Install via Antigravity CLI (`agy`)
+## Usage
+
+1. Restart Antigravity (or open a new window) after the first install so it discovers the sidecar.
+2. Open the auxiliary pane and select **Context & TPS**. You can also ask the agent to "open the Context & TPS monitor"; with the plugin bundle, the agent replies with a `[Context & TPS](sidecar://...)` link.
+3. Use the header controls to follow the latest conversation or pick another one, to change the pricing profile, and to switch between English and Chinese.
+
+## How it works
+
+Antigravity starts `sidecars/context-monitor/server.mjs` from `sidecar.json`. The server listens on `127.0.0.1` and serves the panel and a JSON endpoint, `/api/metrics`. The panel polls that endpoint every 2 seconds while it is visible.
+
+Metrics come from two sources:
+
+| Source | When | Provides |
+| :--- | :--- | :--- |
+| Language Server RPC `GetCascadeTrajectoryGeneratorMetadata` | Antigravity injects `ANTIGRAVITY_LS_ADDRESS` and `ANTIGRAVITY_CSRF_TOKEN` | Millisecond TTFT and streaming duration, thinking vs. response tokens, cache write tokens, the host's compaction limit. Badge: **RPC**. |
+| `~/.gemini/antigravity*/brain/<id>/.system_generated/logs/transcript.jsonl` | Always | Token usage per turn, model switches, `CHECKPOINT` (compaction) events. Durations are estimated from step timestamps. Badge: **Transcript**. |
+
+When both are available, RPC values win and the transcript fills gaps.
+
+### Metric definitions
+
+| Metric | Definition |
+| :--- | :--- |
+| Context used | Input tokens of the latest turn (cached + uncached). |
+| Physical window | 1,048,576 tokens. The 200k and 256k ticks mark the price tier and the compaction threshold. |
+| Compaction watermark | Context used ÷ compaction limit (RPC value, else 256,000). Green below 60%, amber to 85%, red above. |
+| Cache hit rate | Cached input ÷ total input, for the latest turn and for the session. |
+| E2E TPS | Output tokens ÷ (TTFT + streaming time). This is the speed you perceive. |
+| Decode TPS | Output tokens ÷ streaming time. Turns with less than 0.15 s of streaming are skipped as buffered. |
+| Session averages | Total tokens ÷ total seconds over valid turns, so short turns do not skew the result. Interrupted turns (followed by `ERROR_MESSAGE`) are excluded. |
+| Cost | Per turn, with that turn's model: uncached input, cached input, cache writes, and output at list price. A turn whose input exceeds 200k uses the high tier. "Saved by cache" compares against all input billed as uncached. |
+
+Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs). Model names map to a profile by keyword (`opus`, `sonnet`/`claude`, `flash`, `2.5`, otherwise Gemini 3.x Pro). You can override the mapping from the pricing selector.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `ANTIGRAVITY_SIDECAR_WEB_PORT` | `18990` | Port of the panel server. Antigravity sets it for the sidecar. |
+| `AGY_GEMINI_ROOT` | `~/.gemini` | Where to look for transcripts. |
+| `AGY_CONFIG_DIR` | `~/.gemini/config` | Target of the installer. `--config-dir <path>` does the same. |
+
+## Privacy and security
+
+- The server binds to `127.0.0.1` only. It does not send data anywhere.
+- The only outbound request is to the local Antigravity Language Server, with the CSRF token that Antigravity injects. The installer makes the same kind of request to apply the config change live.
+- The panel shows the first 80 characters of the conversation's first prompt as its title. Any local process that can reach the port can read the same data from `/api/metrics`. The server does not check the `Host` header, so a web page that uses DNS rebinding could read it too.
+- The page loads no external scripts, styles, or fonts.
+
+Report vulnerabilities privately through [GitHub security advisories](https://github.com/evenluo/agy-pulse/security/advisories/new).
+
+## Limitations
+
+- Costs are estimates at public list prices. They do not reflect your Antigravity plan, quotas, or negotiated rates, and they go stale when vendors change prices.
+- Without RPC, TTFT and the thinking/response split are not available, and durations are estimated from transcript step timestamps.
+- The transcript format and the RPC are Antigravity internals. A host update can change them.
+- CI covers Linux and macOS. Windows is untested.
+
+## Troubleshooting
+
+| Symptom | Check |
+| :--- | :--- |
+| No **Context & TPS** tab | Run `node install.mjs --status`. Restart Antigravity after the first install. |
+| Badge shows **Transcript** inside Antigravity | The Language Server did not answer. Metrics still work, with lower precision. |
+| Panel is empty | No transcript exists yet under `~/.gemini/antigravity*/brain/`. Send a message first. |
+| Two panels appear | Standalone and plugin installs are both enabled. Rerun the installer in the mode you want; it disables the other entry. |
+
+## Development
 
 ```bash
-agy plugin install https://github.com/evenluo/antigravity-context-monitor
-# Then enable the sidecar in config.json:
-node ~/.gemini/config/plugins/context-monitor/install.mjs
+npm test                                         # node:test, no install step needed
+AGY_GEMINI_ROOT=test/fixtures/demo npm start     # panel with demo data at http://127.0.0.1:18990
 ```
 
-### Option 3: Team / Workspace Sharing (`.agents/`)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the layout of the code and how to update prices.
 
-Copy this folder to `.agents/plugins/context-monitor/` inside your project repository so your entire team gets the plugin automatically when opening the workspace.
+## License
 
----
-
-## 🚀 Usage
-
-1. After installing, **restart Antigravity 2.0** (or open a new window) if this is the first time the sidecar directory was created.
-2. Open the **Auxiliary Side Pane** on the right side of Antigravity 2.0 and select **`Context & TPS`**, or ask the Agent:
-   > *"Open Context & TPS Monitor panel"*
-   The Agent will surface a clickable `[Context & TPS](sidecar://context-monitor/)` pill in chat.
-3. Click **`EN` / `中文`** in the top-right corner of the panel at any time to switch languages.
-
-### CLI Management Commands
-
-```bash
-# Check installation & config.json enablement status
-node install.mjs --status
-
-# Uninstall and disable sidecar cleanly
-node install.mjs --uninstall
-```
-
----
-
-## 🏗️ Architecture
-
-```text
-antigravity-context-monitor/
-├── plugin.json                         # Antigravity Plugin manifest
-├── install.mjs                         # Zero-dependency installer & config.json lifecycle CLI
-├── assets/
-│   └── logo.svg                        # Square SVG icon with >10% safe frame margin
-├── sidecars/
-│   └── context-monitor/
-│       ├── sidecar.json                # Declares SIDECAR_UI_ENTRYPOINT_AUX_PANE web view
-│       └── server.mjs                  # Zero-dependency Node.js telemetry server & bilingual UI
-├── skills/
-│   └── context-monitor/
-│       └── SKILL.md                    # Companion skill for sidecar:// pill navigation & auto-enable
-└── test/
-    └── server.test.mjs                 # Automated unit & integration test suite (node --test)
-```
-
----
-
-## 🧪 Development & Testing
-
-```bash
-# Run the full test suite
-npm test
-
-# Run the monitor server standalone for local browser debugging (http://127.0.0.1:18990)
-npm start
-```
-
-## 📄 License
-
-[MIT License](./LICENSE) © 2026 evenluo
+[MIT](LICENSE) © 2026 evenluo
