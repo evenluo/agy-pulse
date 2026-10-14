@@ -34,14 +34,17 @@ All notable changes to this project are documented here. The format follows [Kee
 - Panel wording: shorter labels in plain words, no unexplained abbreviations, and every label in both languages. Cache savings show as a positive amount instead of a negative percentage.
 - Panel layout: the distance to auto-compaction comes first and the model window second; the conversation title shows at any width; in a narrow pane the turns table keeps #, Context, tok/s, and Cost; TTFT and the thinking split are hidden when the data source does not provide them.
 - The server reads `ui/` files on each request, so UI edits show up without a restart.
-- Removed the `ANTIGRAVITY_SIDECAR_UI_TOKEN` check, which accepted every `GET` request, and all routes are `GET`.
 - Node.js 20 or later is required; CI tests Node.js 20, 22, and 24 on Linux, macOS, and Windows.
+
+### Removed
+
+- The `ANTIGRAVITY_SIDECAR_UI_TOKEN` check. It accepted every `GET` request, and every route is `GET`.
 
 ### Added
 
 - Price profiles for the models Antigravity offers that were billed at another model's price: Claude Opus 5.5, Claude Sonnet 5.5, Gemini 3.6–3.8 Flash (price doubles from 2027-01-01), and Gemini 3 Flash. Model names map by family and version.
 - README sections on data sources, metric definitions, privacy, limitations, and troubleshooting; screenshots.
-- `CONTRIBUTING.md`, `AGENTS.md`, and a demo fixture for local development.
+- `CONTRIBUTING.md`, `AGENTS.md`, `SECURITY.md`, and a demo fixture for local development.
 
 ## [1.0.0] - 2026-10-14
 

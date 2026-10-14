@@ -13,7 +13,7 @@
 
 agy-pulse is a native [Antigravity sidecar](#how-it-works) that shows, for the conversation you are in:
 
-- **How close you are to auto-compaction.** Antigravity compacts context around 256k tokens, well below the model's 1M window. agy-pulse shows both limits and, for models priced by prompt length, the 200k line above which long-context prices apply.
+- **How close you are to auto-compaction.** Antigravity compacts context at about 256k tokens, well below the model's 1M window. Google does not document this threshold; it comes from [community measurements](https://github.com/google-antigravity/antigravity-cli/issues/878) on Gemini, and agy-pulse uses the host's value when the RPC reports one. agy-pulse shows both limits and, for models priced by prompt length, the 200k line above which long-context prices apply.
 - **What the session would cost at API list prices**, per model, including long-context and dated price changes, and the amount prompt caching saved.
 - **Where the time goes.** Time to first token (TTFT), end-to-end TPS, and pure decode TPS, with thinking tokens split from visible output.
 
@@ -99,7 +99,7 @@ Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor
 - The panel shows the first 80 characters of the conversation's first prompt as its title. Any local process that can reach the port can read the same data from `/api/metrics`. The server answers only requests whose `Host` is `127.0.0.1`, `localhost`, or `[::1]`, so a web page cannot read it through DNS rebinding.
 - The page loads no external scripts, styles, or fonts.
 
-Report vulnerabilities privately through [GitHub security advisories](https://github.com/evenluo/agy-pulse/security/advisories/new).
+Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## Limitations
 
@@ -107,7 +107,7 @@ Report vulnerabilities privately through [GitHub security advisories](https://gi
 - Without RPC, TTFT and the thinking/response split are not available, and durations are estimated from transcript step timestamps.
 - The transcript format and the RPC are Antigravity internals. A host update can change them.
 - GPT-OSS 120B has no vendor list price and is billed as Gemini 3.1 Pro. Antigravity removes it on 2026-11-02.
-- Google does not list a price for Gemini 3.7 Flash; it is billed like 3.6 and 3.8 Flash.
+- The 256k compaction default is measured on Gemini models. Without RPC data, non-Gemini models use the same default.
 - CI covers Linux, macOS, and Windows. It runs the tests, not a live Antigravity host.
 
 ## Troubleshooting

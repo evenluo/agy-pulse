@@ -49,4 +49,4 @@ Keep `version` in `package.json` and `plugin.json` equal (a test enforces this),
 
 ## Security
 
-Do not open public issues for vulnerabilities. Use [GitHub security advisories](https://github.com/evenluo/agy-pulse/security/advisories/new).
+Do not open public issues for vulnerabilities. See [SECURITY.md](SECURITY.md).
