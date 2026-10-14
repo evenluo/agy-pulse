@@ -108,7 +108,7 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 - Transcript 格式和 RPC 属于 Antigravity 内部实现，宿主更新可能改变它们。
 - GPT-OSS 120B 没有厂商标价，按 Gemini 3.1 Pro 计价。Antigravity 将在 2026-11-02 移除该模型。
 - Google 没有公布 Gemini 3.7 Flash 的价格，按 3.6 和 3.8 Flash 的价格计算。
-- CI 覆盖 Linux 和 macOS，未在 Windows 上测试。
+- CI 覆盖 Linux、macOS 和 Windows。CI 只运行测试，不包含真实的 Antigravity 环境。
 
 ## 排障
 

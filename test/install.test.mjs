@@ -45,8 +45,10 @@ describe('Installer CLI (install.mjs)', () => {
     assert.equal(cfg.userSettings.theme, 'dark');
     assert.equal(cfg.sidecars['context-monitor'].enabled, true);
 
-    const mode = statSync(cfgPath).mode & 0o777;
-    assert.equal(mode, 0o600);
+    // Windows has no POSIX permission bits.
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(cfgPath).mode & 0o777, 0o600);
+    }
   });
 
   it('copies the whole sidecar directory, including the UI files', async () => {
