@@ -45,7 +45,11 @@ Add or update tests for behaviour changes. Pure logic belongs in `metrics.mjs` o
 
 ## Releases
 
-Keep `version` in `package.json` and `plugin.json` equal (a test enforces this), and move the `Unreleased` section of `CHANGELOG.md` under the new version.
+1. Set the same `version` in `package.json` and `plugin.json` (a test enforces this).
+2. Move the `Unreleased` section of `CHANGELOG.md` under the new version and update the compare links at the bottom.
+3. After the pull request is merged, tag the merge commit `vX.Y.Z` and create a GitHub release with that version's CHANGELOG section as notes.
+
+The project is pre-1.0: a minor version may include breaking changes, listed at the top of its CHANGELOG section.
 
 ## Security
 
