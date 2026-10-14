@@ -1,6 +1,6 @@
 {
   "display_name": "Context & TPS Monitor",
-  "description": "Context window, prompt cache, cost at API list prices, and latency (TTFT, tokens/s) for the current Antigravity conversation.",
+  "description": "Context window, prompt cache, cost at API list prices, and speed (TTFT, tokens/s) for the current Antigravity conversation.",
   "command": "node",
   "args": ["--watch", "server.mjs"],
   "restart_policy": "always",

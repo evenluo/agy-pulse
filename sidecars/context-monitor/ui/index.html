@@ -404,7 +404,7 @@
         highTierTurns: "{n} 轮 >200k",
         highTierTitle: "该轮按 >200k 价格计费",
         cacheSaved: "缓存节省",
-        savedVsNoCache: "无缓存需 {cost}，省 {pct}%",
+        savedVsNoCache: "无缓存 {cost}，省\u00a0{pct}%",
         cumInput: "输入 Token",
         cumOutput: "输出 Token",
         inSplit: "缓存 {a} · 新增 {b}",
@@ -419,7 +419,7 @@
         mInputVal: "{n} · 缓存 {pct}%",
         mOutput: "输出",
         mCost: "费用",
-        mCostVal: "输入 {a} · 输出 {b}",
+        mCostVal: "入 {a} · 出 {b}",
         trendTitle: "每轮 Context 与速度",
         axisCtx: "Context（左）",
         axisTps: "tok/s（右）",
@@ -697,7 +697,9 @@
         if (!selectedConvId) selectedConvId = data.conversationId;
       }
 
-      document.getElementById("modelBadge").textContent = data.model || "Gemini";
+      const modelBadge = document.getElementById("modelBadge");
+      modelBadge.textContent = data.model || "Gemini";
+      modelBadge.title = data.model || "";
       const srcBadge = document.getElementById("sourceBadge");
       srcBadge.textContent = data.rpcConnected ? "RPC" : "Transcript";
       srcBadge.title = data.rpcConnected ? tr("srcRpcTitle") : tr("srcTranscriptTitle");

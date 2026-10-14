@@ -2,7 +2,7 @@
   "name": "context-monitor",
   "displayName": "Context & TPS Monitor",
   "version": "1.0.0",
-  "description": "Context window, prompt cache, cost at API list prices, and latency (TTFT, tokens/s) for the current Antigravity conversation.",
+  "description": "Context window, prompt cache, cost at API list prices, and speed (TTFT, tokens/s) for the current Antigravity conversation.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "Open Context & TPS Monitor panel",
