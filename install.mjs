@@ -62,9 +62,11 @@ function readConfig(configPath) {
   if (!existsSync(configPath)) return {};
   const raw = readFileSync(configPath, 'utf-8');
   try {
-    return JSON.parse(raw);
+    const cfg = JSON.parse(raw);
+    if (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) return cfg;
+    throw new Error('top level is not an object');
   } catch (err) {
-    throw new Error(`${configPath} is not valid JSON (${err.message}). Fix it, then rerun.`);
+    throw new Error(`${configPath} is not a valid JSON object (${err.message}). Fix it, then rerun.`);
   }
 }
 
@@ -177,7 +179,9 @@ Options:
   if (opts.mode === 'status') {
     const cfg = readConfig(configPath);
     const standaloneFiles = existsSync(join(standaloneDir, 'server.mjs'));
-    const pluginFiles = existsSync(join(pluginInstallDir, 'plugin.json'));
+    const pluginFiles = keys
+      .filter((k) => k !== 'context-monitor')
+      .some((k) => existsSync(join(opts.configDir, 'plugins', k.split('/')[0], 'plugin.json')));
     const standaloneEnabled = Boolean(cfg?.sidecars?.['context-monitor']?.enabled);
     const pluginSidecarEnabled = keys
       .filter((k) => k !== 'context-monitor')
@@ -287,7 +291,7 @@ Options:
 }
 
 const isMain =
-  process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  process.argv[1] && realPath(process.argv[1]) === realPath(fileURLToPath(import.meta.url));
 if (isMain) {
   runCli().catch((err) => {
     console.error(`[context-monitor] Failed: ${err.message}`);

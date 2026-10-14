@@ -111,7 +111,7 @@ export function parseTranscriptMetrics(transcriptPath) {
   for (const line of lines) {
     try {
       const step = JSON.parse(line);
-      if (step && typeof step === 'object') steps.push(step);
+      if (step && typeof step === 'object' && !Array.isArray(step)) steps.push(step);
     } catch {
       // skip malformed line
     }

@@ -24,6 +24,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Split the 1,650-line `server.mjs` into `server.mjs`, `metrics.mjs`, `pricing.mjs`, and `ui/`.
 - Standalone install copies the whole sidecar directory.
 - The panel pauses polling while it is hidden.
+- The server reads `ui/` files on each request, so UI edits show up without a restart.
 - Removed the `ANTIGRAVITY_SIDECAR_UI_TOKEN` check, which accepted every `GET` request, and all routes are `GET`.
 - Node.js 20 or later is required; CI tests Node.js 20, 22, and 24.
 

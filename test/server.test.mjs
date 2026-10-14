@@ -1,10 +1,13 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { HTML_PAGE, PRELOAD_JS, server } from '../sidecars/context-monitor/server.mjs';
+import { server } from '../sidecars/context-monitor/server.mjs';
+
+const readUi = (name) =>
+  readFileSync(new URL(`../sidecars/context-monitor/ui/${name}`, import.meta.url), 'utf-8');
 
 describe('Offline UI & HTTP Server', () => {
   let tmpRoot;
@@ -24,11 +27,12 @@ describe('Offline UI & HTTP Server', () => {
   });
 
   it('ships a self-contained page with no external scripts, styles, or fonts', () => {
+    const HTML_PAGE = readUi('index.html');
     assert.doesNotMatch(HTML_PAGE, /(src|href)=["']?https?:/i);
     assert.doesNotMatch(HTML_PAGE, /@import|url\(\s*["']?https?:/i);
     assert.ok(HTML_PAGE.includes('id="langToggle"'));
     assert.ok(HTML_PAGE.includes('const I18N ='));
-    assert.ok(PRELOAD_JS.includes('theme-change'));
+    assert.ok(readUi('preload.js').includes('theme-change'));
   });
 
   it('serves /, /preload.js, /api/metrics, and 404', async () => {

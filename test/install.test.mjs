@@ -80,7 +80,10 @@ describe('Installer CLI (install.mjs)', () => {
       const cfgPath = join(dir, 'config.json');
       writeFileSync(cfgPath, '{ "userSettings": { "theme": "dark", }');
       const before = readFileSync(cfgPath, 'utf-8');
-      await assert.rejects(runCli(['--standalone', '--config-dir', dir, '--quiet']), /not valid JSON/);
+      await assert.rejects(runCli(['--standalone', '--config-dir', dir, '--quiet']), /not a valid JSON object/);
+      writeFileSync(cfgPath, 'null');
+      await assert.rejects(runCli(['--standalone', '--config-dir', dir, '--quiet']), /not a valid JSON object/);
+      writeFileSync(cfgPath, before);
       assert.equal(readFileSync(cfgPath, 'utf-8'), before);
       assert.equal(existsSync(join(dir, 'sidecars')), false);
     } finally {
@@ -132,6 +135,10 @@ describe('Installer CLI (install.mjs)', () => {
       await runCli(['--plugin', '--config-dir', dir, '--quiet']);
       assert.equal(readCfg().sidecars['agy-pulse/context-monitor'].enabled, false);
       assert.equal(readCfg().sidecars['context-monitor/context-monitor'].enabled, true);
+
+      rmSync(join(dir, 'plugins', 'context-monitor'), { recursive: true, force: true });
+      const before = await runCli(['--status', '--config-dir', dir, '--quiet']);
+      assert.equal(before.status.pluginInstalled, true, 'plugin under plugins/agy-pulse counts as installed');
 
       await runCli(['--uninstall', '--config-dir', dir, '--quiet']);
       const st = await runCli(['--status', '--config-dir', dir, '--quiet']);
