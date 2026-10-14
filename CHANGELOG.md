@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Installer writes `config.json` with an atomic rename instead of a copy, and writes through a symlinked `config.json` instead of replacing the link.
 - Installer keeps only one registration of the sidecar enabled, including plugin directories with another name (for example one created by `agy plugin install`); `--status` and `--uninstall` cover them too.
 - `install.mjs` and `server.mjs` detect being the entrypoint when started through a symlink.
+- Installer resolves symlinks when it checks whether it runs inside `plugins/` (macOS `/var` -> `/private/var`, a symlinked `~/.gemini`).
 - Installer rejects unknown options instead of silently doing a standalone install.
 - Panel escapes model names and conversation IDs before inserting them into HTML.
 - Selecting a conversation without a local transcript no longer shows the latest conversation's transcript under that ID.

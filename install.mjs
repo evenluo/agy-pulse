@@ -109,8 +109,13 @@ async function tryNotifyLanguageServer(patch) {
   }
 }
 
+// Compare paths after resolving symlinks (macOS /var -> /private/var, symlinked ~/.gemini).
+function realPath(p) {
+  return existsSync(p) ? realpathSync(p) : resolve(p);
+}
+
 function detectContainingPluginDir(configDir) {
-  const rel = relative(resolve(configDir, 'plugins'), resolve(__dirname));
+  const rel = relative(realPath(join(configDir, 'plugins')), realPath(__dirname));
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null;
   return rel.split(sep)[0];
 }
@@ -200,7 +205,7 @@ Options:
     if (existsSync(standaloneDir)) {
       rmSync(standaloneDir, { recursive: true, force: true });
     }
-    if (existsSync(pluginInstallDir) && resolve(__dirname) !== resolve(pluginInstallDir)) {
+    if (existsSync(pluginInstallDir) && realPath(__dirname) !== realPath(pluginInstallDir)) {
       rmSync(pluginInstallDir, { recursive: true, force: true });
     }
     log('[context-monitor] Uninstalled and disabled in config.json.');
@@ -245,7 +250,7 @@ Options:
     for (const item of itemsToCopy) {
       const src = join(__dirname, item);
       const dst = join(pluginInstallDir, item);
-      if (existsSync(src) && resolve(src) !== resolve(dst)) {
+      if (existsSync(src) && realPath(src) !== realPath(dst)) {
         cpSync(src, dst, { recursive: true, force: true });
       }
     }
