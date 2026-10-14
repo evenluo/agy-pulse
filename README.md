@@ -108,7 +108,7 @@ Report vulnerabilities privately through [GitHub security advisories](https://gi
 - The transcript format and the RPC are Antigravity internals. A host update can change them.
 - GPT-OSS 120B has no vendor list price and is billed as Gemini 3.1 Pro. Antigravity removes it on 2026-11-02.
 - Google does not list a price for Gemini 3.7 Flash; it is billed like 3.6 and 3.8 Flash.
-- CI covers Linux and macOS. Windows is untested.
+- CI covers Linux, macOS, and Windows. It runs the tests, not a live Antigravity host.
 
 ## Troubleshooting
 
