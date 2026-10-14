@@ -62,12 +62,11 @@
     .flex-wrap { flex-wrap: wrap; }
     .flex-auto { flex: 1 1 auto; }
     .inline-block { display: inline-block; }
-    .hidden { display: none; }
     .grid { display: grid; }
     .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
     .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     @media (min-width: 520px) {
-            .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .sm\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     }
     /* Narrow panes keep only #, Context, tok/s and Cost in the turns table. */
@@ -75,6 +74,8 @@
       .wide-only { display: none; }
     }
     table.no-ttft .col-ttft { display: none; }
+    /* Badges filled by renderData stay hidden until they have text. */
+    #ctxStatusBadge:empty, #turnCountBadge:empty, #pricingModelTag:empty { display: none; }
     .items-center { align-items: center; }
     .items-baseline { align-items: baseline; }
     .justify-between { justify-content: space-between; }
@@ -96,7 +97,8 @@
     .w-\[2px\] { width: 2px; }
     .max-w-\[145px\] { max-width: 145px; }
     .max-w-\[175px\] { max-width: 175px; }
-        .max-h-64 { max-height: 256px; }
+    .max-w-\[60\%\] { max-width: 60%; }
+    .max-h-64 { max-height: 256px; }
     .relative { position: relative; }
     .absolute { position: absolute; }
     .top-0 { top: 0; }
@@ -139,7 +141,6 @@
     .tabular-nums { font-variant-numeric: tabular-nums; }
     .select-none { user-select: none; }
     .cursor-pointer { cursor: pointer; }
-    .opacity-70 { opacity: 0.7; }
     .opacity-80 { opacity: 0.8; }
     .transition-all { transition: all 0.3s ease; }
     .duration-300 { transition-duration: 300ms; }
@@ -148,7 +149,6 @@
     .text-amber-400 { color: #fbbf24; }
     .text-amber-400\/90 { color: rgba(251, 191, 36, 0.9); }
     .text-rose-400 { color: #fb7185; }
-    .text-rose-400\/90 { color: rgba(251, 113, 133, 0.9); }
     .text-violet-400 { color: #a78bfa; }
     .text-violet-300 { color: #c4b5fd; }
     .bg-emerald-400 { background-color: #34d399; }
@@ -160,7 +160,6 @@
     .bg-amber-500 { background-color: #f59e0b; }
     .bg-amber-500\/15 { background-color: rgba(245, 158, 11, 0.15); }
     .bg-amber-500\/30 { background-color: rgba(245, 158, 11, 0.3); }
-    .bg-amber-400\/80 { background-color: rgba(251, 191, 36, 0.8); }
     .bg-amber-400\/90 { background-color: rgba(251, 191, 36, 0.9); }
     .bg-rose-500 { background-color: #f43f5e; }
     .bg-rose-500\/15 { background-color: rgba(244, 63, 94, 0.15); }
@@ -177,7 +176,7 @@
   <div class="card flex flex-wrap items-center justify-between gap-2 py-2.5">
     <div class="flex flex-auto items-center gap-2 min-w-0">
       <span id="liveDot" class="inline-block w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-      <span class="font-semibold text-sm shrink-0" id="modelBadge">Context & TPS</span>
+      <span class="font-semibold text-sm truncate shrink-0 max-w-[60%]" id="modelBadge">Context & TPS</span>
       <span id="sourceBadge" class="px-1.5 py-0.5 rounded text-[11px] border border-current opacity-80 shrink-0">RPC</span>
       <span id="convTitle" class="muted truncate min-w-0"></span>
     </div>
@@ -211,7 +210,7 @@
 
     <div class="space-y-1">
       <div class="flex flex-wrap items-baseline justify-between gap-1">
-        <span class="muted" data-i18n="compBarTitle">距自动压缩</span>
+        <span class="muted" data-i18n="compBarTitle">自动压缩阈值</span>
         <span id="ctxRemain" class="text-sm font-bold tabular-nums text-emerald-400"></span>
       </div>
       <div class="relative w-full h-3 rounded-full bg-slate-500/20 overflow-hidden">
@@ -219,7 +218,7 @@
         <div id="tick200kComp" class="absolute top-0 bottom-0 w-[2px] bg-amber-400/90 z-10" style="left: 78.13%" data-i18n-title="tick200kTitle"></div>
       </div>
       <div class="flex flex-wrap items-center justify-between gap-1 text-[11px] muted">
-        <span class="text-amber-400/90" data-i18n="tick200k">▲ 200k 长上下文计价线</span>
+        <span id="tick200kLegend" class="text-amber-400/90" data-i18n="tick200k">▲ 200k 长上下文计价线</span>
         <span id="ctxCompRemain" class="tabular-nums"></span>
       </div>
     </div>
@@ -304,22 +303,19 @@
         <div class="muted text-[11px] tabular-nums" id="costNoCacheUsd"></div>
       </div>
       <div class="subcard space-y-0.5">
-        <div class="flex justify-between muted text-[11px]"><span data-i18n="cumInput">输入</span><span id="costSplitUsd" class="text-sky-400 tabular-nums"></span></div>
+        <div class="flex justify-between muted text-[11px]"><span data-i18n="cumInput">输入 Token</span><span id="costSplitUsd" class="text-sky-400 tabular-nums"></span></div>
         <div class="text-sm font-bold tabular-nums text-sky-400" id="sumInTokens">0</div>
         <div class="muted text-[11px] tabular-nums" id="sumInSplit"></div>
       </div>
       <div class="subcard space-y-0.5">
-        <div class="flex justify-between muted text-[11px]"><span data-i18n="cumOutput">输出</span><span id="costDetailSplit" class="text-violet-400 tabular-nums"></span></div>
+        <div class="flex justify-between muted text-[11px]"><span data-i18n="cumOutput">输出 Token</span><span id="costDetailSplit" class="text-violet-400 tabular-nums"></span></div>
         <div class="text-sm font-bold tabular-nums text-violet-400" id="sumOutTokens">0</div>
         <div class="muted text-[11px] tabular-nums" id="sumOutSplit"></div>
       </div>
     </div>
 
     <div class="pt-2 border-t border-slate-500/15 space-y-2">
-      <div class="flex items-center justify-between">
-        <span class="font-medium text-xs" data-i18n="perModelTitle">按模型</span>
-        <span id="modelCountBadge" class="muted text-[11px]"></span>
-      </div>
+      <div class="font-medium text-xs" data-i18n="perModelTitle">按模型</div>
       <div id="modelStatsList" class="space-y-2"></div>
     </div>
   </div>
@@ -350,7 +346,7 @@
             <th>Context</th>
             <th class="wide-only" data-i18n="thCache">缓存</th>
             <th class="wide-only" data-i18n="thOut" data-i18n-title="thOutTitle">输出</th>
-            <th class="wide-only col-ttft" data-i18n-title="thTtftTitle">TTFT</th>
+            <th class="wide-only col-ttft" data-i18n="thTtft" data-i18n-title="thTtftTitle">TTFT</th>
             <th class="wide-only" data-i18n="thDur">耗时</th>
             <th data-i18n-title="thTpsTitle">tok/s</th>
             <th data-i18n="thCost">费用</th>
@@ -377,17 +373,17 @@
         statusSafe: "🟢 空间充足",
         statusWarn: "🟡 接近自动压缩",
         statusDanger: "🔴 即将自动压缩",
-        compBarTitle: "距自动压缩",
+        compBarTitle: "自动压缩阈值",
         compLeft: "还剩 {n}",
         tick200k: "▲ 200k 长上下文计价线",
         tick200kTitle: "超过 200k 输入后按长上下文价格计费",
         tickCompTitle: "自动压缩阈值",
         physBarTitle: "模型窗口",
         speedTitle: "速度",
-        modeE2e: "含首字延迟",
+        modeE2e: "含等待",
         modeDec: "仅解码",
         decode: "解码 {n}",
-        visible: "可见 {n}",
+        visible: "正文 {n}",
         avg: "均值 {n} tok/s",
         peak: "峰值 {n} tok/s",
         lastTurnTitle: "本轮",
@@ -399,7 +395,7 @@
         cacheTitle: "缓存命中率",
         cached: "命中 {n}",
         newTokens: "新增 {n}",
-        sessionRate: "会话累计 {n}%",
+        sessionRate: "会话平均 {n}%",
         billingTitle: "会话费用",
         multiModelTag: "{n} 个模型，分别计价",
         sessionTokens: "共 {n} Token",
@@ -408,18 +404,17 @@
         highTierTurns: "{n} 轮 >200k",
         highTierTitle: "该轮按 >200k 价格计费",
         cacheSaved: "缓存节省",
-        savedVsNoCache: "比无缓存 {cost} 少 {pct}%",
-        cumInput: "输入",
-        cumOutput: "输出",
+        savedVsNoCache: "无缓存需 {cost}，省 {pct}%",
+        cumInput: "输入 Token",
+        cumOutput: "输出 Token",
         inSplit: "缓存 {a} · 新增 {b}",
         outSplit: "思考 {a} · 正文 {b}",
         perModelTitle: "按模型",
-        modelCount: "{n} 个模型",
         priceAs: "计价：{p}",
         saved: "省 {n}",
         costShare: "占 {n}%",
         mTurns: "轮数",
-        mTurnsVal: "{n}（{pct}%）· {tok} Token",
+        mTurnsVal: "{n}（{pct}%）",
         mInput: "输入",
         mInputVal: "{n} · 缓存 {pct}%",
         mOutput: "输出",
@@ -433,6 +428,7 @@
         thCache: "缓存",
         thOut: "输出",
         thOutTitle: "括号内为 思考/正文",
+        thTtft: "首字",
         thTtftTitle: "首字延迟",
         thDur: "耗时",
         thTpsTitle: "端到端 tok/s，括号内为解码 tok/s",
@@ -455,17 +451,17 @@
         statusSafe: "🟢 Plenty of room",
         statusWarn: "🟡 Nearing auto-compaction",
         statusDanger: "🔴 Auto-compaction soon",
-        compBarTitle: "Until auto-compaction",
+        compBarTitle: "Auto-compaction limit",
         compLeft: "{n} left",
         tick200k: "▲ 200k long-context price",
         tick200kTitle: "Input above 200k is billed at the long-context price",
         tickCompTitle: "Auto-compaction threshold",
         physBarTitle: "Model window",
         speedTitle: "Speed",
-        modeE2e: "incl. first token",
+        modeE2e: "incl. wait",
         modeDec: "decode only",
         decode: "decode {n}",
-        visible: "visible {n}",
+        visible: "response {n}",
         avg: "avg {n} tok/s",
         peak: "peak {n} tok/s",
         lastTurnTitle: "Last turn",
@@ -477,7 +473,7 @@
         cacheTitle: "Cache hit rate",
         cached: "{n} cached",
         newTokens: "{n} new",
-        sessionRate: "Session {n}%",
+        sessionRate: "Session avg {n}%",
         billingTitle: "Session cost",
         multiModelTag: "{n} models, priced separately",
         sessionTokens: "{n} tokens",
@@ -487,22 +483,21 @@
         highTierTitle: "Billed at the >200k price",
         cacheSaved: "Saved by cache",
         savedVsNoCache: "{pct}% less than {cost} uncached",
-        cumInput: "Input",
-        cumOutput: "Output",
+        cumInput: "Input tokens",
+        cumOutput: "Output tokens",
         inSplit: "{a} cached · {b} new",
         outSplit: "thinking {a} · response {b}",
         perModelTitle: "By model",
-        modelCount: "{n} models",
         priceAs: "Price: {p}",
         saved: "saved {n}",
         costShare: "{n}% of cost",
         mTurns: "Turns",
-        mTurnsVal: "{n} ({pct}%) · {tok} tokens",
+        mTurnsVal: "{n} ({pct}%)",
         mInput: "Input",
         mInputVal: "{n} · {pct}% cached",
         mOutput: "Output",
         mCost: "Cost",
-        mCostVal: "input {a} · output {b}",
+        mCostVal: "{a} in · {b} out",
         trendTitle: "Context and speed per turn",
         axisCtx: "Context (left)",
         axisTps: "tok/s (right)",
@@ -511,6 +506,7 @@
         thCache: "Cache",
         thOut: "Output",
         thOutTitle: "Thinking/response in parentheses",
+        thTtft: "TTFT",
         thTtftTitle: "Time to first token",
         thDur: "Time",
         thTpsTitle: "End-to-end tok/s, decode tok/s in parentheses",
@@ -645,13 +641,10 @@
 
     function renderModelStats(models) {
       const container = document.getElementById("modelStatsList");
-      const badge = document.getElementById("modelCountBadge");
       if (!models || models.length === 0) {
-        badge.textContent = "";
         container.innerHTML = "<div class=\"muted text-[11px]\">" + tr("noModelData") + "</div>";
         return;
       }
-      badge.textContent = tr("modelCount", { n: models.length });
       const field = function(label, value) {
         return "<div><span class=\"muted\">" + label + " </span>" + value + "</div>";
       };
@@ -680,7 +673,7 @@
             "<div class=\"h-full bg-emerald-400 transition-all duration-300\" style=\"width: " + Math.min(100, Number(m.costSharePct || 0)).toFixed(1) + "%\"></div>" +
           "</div>" +
           "<div class=\"grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px] pt-0.5 tabular-nums\">" +
-            field(tr("mTurns"), tr("mTurnsVal", { n: m.turnCount, pct: m.turnSharePct.toFixed(0), tok: fmtCompact(m.totalTokens) })) +
+            field(tr("mTurns"), tr("mTurnsVal", { n: m.turnCount, pct: m.turnSharePct.toFixed(0) })) +
             field(tr("mInput"), tr("mInputVal", { n: fmtCompact(m.inCached + m.inUncached), pct: m.cacheHitRate.toFixed(1) })) +
             field(tr("mOutput"), fmtCompact(m.outTokens) + " · " + tpsStr) +
             field(tr("mCost"), tr("mCostVal", { a: fmtUsd(m.inputCostUsd), b: fmtUsd(m.outputCostUsd) })) +
@@ -717,13 +710,14 @@
       const compPct = Number(s.compactionUsedPct || 0);
 
       document.getElementById("ctxTokens").textContent =
-        fmtCompact(s.contextUsed) + " / " + fmtCompact(maxPhys) + " · " + pct.toFixed(1) + "%";
+        fmtCompact(maxPhys) + " · " + pct.toFixed(1) + "%";
       document.getElementById("ctxPhysBar").style.width = Math.min(100, pct).toFixed(2) + "%";
       document.getElementById("tick200kPhys").style.left = Math.min(100, (200000 / maxPhys) * 100).toFixed(2) + "%";
       document.getElementById("tick256kPhys").style.left = Math.min(100, (compLimit / maxPhys) * 100).toFixed(2) + "%";
       const tick200kComp = document.getElementById("tick200kComp");
       tick200kComp.style.left = Math.min(100, (200000 / compLimit) * 100).toFixed(2) + "%";
       tick200kComp.style.display = compLimit > 200000 ? "" : "none";
+      document.getElementById("tick200kLegend").style.display = tick200kComp.style.display;
 
       const level = compPct > 85 ? "rose" : compPct > 60 ? "amber" : "emerald";
       const ctxBar = document.getElementById("ctxBar");
@@ -742,7 +736,7 @@
 
       const hitRate = Number(s.lastCacheHitRate || 0);
       document.getElementById("cacheRate").textContent = hitRate.toFixed(1) + "%";
-      document.getElementById("cacheTokens").textContent = tr("cached", { n: fmtNum(s.lastCachedTokens) });
+      document.getElementById("cacheTokens").textContent = tr("cached", { n: fmtCompact(s.lastCachedTokens) });
       document.getElementById("cacheBar").style.width = Math.min(100, hitRate).toFixed(1) + "%";
       document.getElementById("uncachedTokens").textContent = tr("newTokens", { n: fmtCompact(s.lastUncachedTokens) });
       document.getElementById("sessionCacheRate").textContent = tr("sessionRate", { n: Number(s.sessionCacheHitRate || 0).toFixed(1) });
@@ -794,10 +788,13 @@
       document.getElementById("costSplitUsd").textContent = fmtUsd(s.totalInputCostUsd);
       document.getElementById("costDetailSplit").textContent = fmtUsd(s.totalOutputCostUsd);
       document.getElementById("costSavedUsd").textContent = fmtUsd(s.savedByCacheUsd);
-      document.getElementById("costNoCacheUsd").textContent =
-        tr("savedVsNoCache", { pct: Number(s.savedByCachePct || 0).toFixed(1), cost: fmtUsd(s.noCacheTotalCostUsd) });
+      document.getElementById("costNoCacheUsd").textContent = s.noCacheTotalCostUsd > 0
+        ? tr("savedVsNoCache", { pct: Number(s.savedByCachePct || 0).toFixed(1), cost: fmtUsd(s.noCacheTotalCostUsd) })
+        : "";
 
-      document.getElementById("convTitle").textContent = data.title || "";
+      const convTitle = document.getElementById("convTitle");
+      convTitle.textContent = data.title || "";
+      convTitle.title = data.title || "";
       document.getElementById("updatedTime").textContent = new Date().toLocaleTimeString();
 
       renderModelStats(data.modelStats || []);

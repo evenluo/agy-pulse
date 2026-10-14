@@ -19,7 +19,7 @@ agy-pulse 是一个原生 [Antigravity Sidecar](#工作原理)。它针对当前
 
 它运行在 Antigravity 右侧辅助栏中，除 Node.js 外没有任何依赖，只读取本机数据。
 
-<p align="center"><img src="docs/screenshot-zh.png" width="640" alt="agy-pulse 面板：Context 水位、速度、缓存命中率、分模型费用、趋势图和每轮明细" /></p>
+<p align="center"><img src="docs/screenshot-zh.png" width="640" alt="agy-pulse 面板：距自动压缩的 Context 用量、速度、缓存命中率、分模型费用、趋势图和每轮明细" /></p>
 
 <sub>截图由 <code>test/fixtures/demo</code> 中的合成数据渲染。</sub>
 
@@ -74,8 +74,8 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 | 指标 | 定义 |
 | :--- | :--- |
 | Context 占用 | 最新一轮的输入 Token（缓存 + 未缓存）。 |
-| 物理窗口 | 1,048,576 Token。200k 和 256k 刻度分别标记价格阶梯和压缩阈值。 |
-| 压缩水位 | Context 占用 ÷ 压缩阈值（优先用 RPC 值，否则 256,000）。低于 60% 为绿色，60%–85% 为黄色，高于 85% 为红色。 |
+| 自动压缩阈值 | Context 占用 ÷ 压缩阈值（优先用 RPC 值，否则 256,000）。低于 60% 为绿色，60%–85% 为黄色，高于 85% 为红色。200k 刻度标记长上下文计价的起点。 |
+| 模型窗口 | Context 占用 ÷ 1,048,576 Token，即模型的完整窗口。 |
 | 缓存命中率 | 缓存输入 ÷ 总输入，分最新一轮和整个会话。 |
 | E2E TPS | 输出 Token ÷（TTFT + 流式耗时），即体感速度。 |
 | Decode TPS | 输出 Token ÷ 流式耗时。流式耗时低于 0.15 秒的轮次视为整包缓冲，不参与计算。 |

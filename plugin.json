@@ -2,7 +2,7 @@
   "name": "context-monitor",
   "displayName": "Context & TPS Monitor",
   "version": "1.0.0",
-  "description": "Real-time dual-track Context window watermark (1.05M physical & 256k auto-compaction), cache hit rate, per-model API cost & cache savings (>200k tier pricing), TTFT, and E2E/Decode TPS monitor for Antigravity.",
+  "description": "Context window, prompt cache, cost at API list prices, and latency (TTFT, tokens/s) for the current Antigravity conversation.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "Open Context & TPS Monitor panel",
