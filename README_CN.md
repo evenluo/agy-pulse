@@ -13,7 +13,7 @@
 
 agy-pulse 是一个原生 [Antigravity Sidecar](#工作原理)。它针对当前对话显示三类信息：
 
-- **离自动压缩还有多远。** Antigravity 在约 256k Token 时压缩上下文，远低于模型的 1M 窗口。agy-pulse 同时显示这两条线；对按提示词长度分档计价的模型，还显示开始按长上下文价格计费的 200k 线。
+- **离自动压缩还有多远。** Antigravity 在约 256k Token 时压缩上下文，远低于模型的 1M 窗口。Google 没有公布这个阈值，该数值来自 Gemini 模型上的[社区实测](https://github.com/google-antigravity/antigravity-cli/issues/878)；RPC 提供阈值时，agy-pulse 以宿主的值为准。agy-pulse 同时显示这两条线；对按提示词长度分档计价的模型，还显示开始按长上下文价格计费的 200k 线。
 - **按 API 标价折算的会话费用。** 按模型分别计算，包含长上下文阶梯价和按日期生效的调价，并显示 Prompt Cache 节省的金额。
 - **时间花在哪里。** 首字延迟（TTFT）、端到端 TPS 和纯解码 TPS，并把 Thinking Token 与可见输出分开。
 
@@ -107,7 +107,7 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 - 没有 RPC 时，TTFT 和 Thinking/正文拆分不可用，耗时由 Transcript 步骤时间戳估算。
 - Transcript 格式和 RPC 属于 Antigravity 内部实现，宿主更新可能改变它们。
 - GPT-OSS 120B 没有厂商标价，按 Gemini 3.1 Pro 计价。Antigravity 将在 2026-11-02 移除该模型。
-- Google 没有公布 Gemini 3.7 Flash 的价格，按 3.6 和 3.8 Flash 的价格计算。
+- 256k 压缩默认值是在 Gemini 模型上实测的。没有 RPC 数据时，Claude 模型的水位也使用这个默认值。
 - CI 覆盖 Linux、macOS 和 Windows。CI 只运行测试，不包含真实的 Antigravity 环境。
 
 ## 排障

@@ -41,7 +41,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Price profiles for the models Antigravity offers that were billed at another model's price: Claude Opus 5.5, Claude Sonnet 5.5, Gemini 3.6–3.8 Flash (price doubles from 2027-01-01), and Gemini 3 Flash. Model names map by family and version.
 - README sections on data sources, metric definitions, privacy, limitations, and troubleshooting; screenshots.
-- `CONTRIBUTING.md`, `AGENTS.md`, and a demo fixture for local development.
+- `CONTRIBUTING.md`, `AGENTS.md`, `SECURITY.md`, and a demo fixture for local development.
 
 ## [1.0.0] - 2026-10-14
 

@@ -32,8 +32,9 @@ export const PRICING_PROFILES = {
     base: { inUncached: 1.25, inCached: 0.125, cacheWrite: 1.25, out: 10.0 },
     high: { inUncached: 2.5, inCached: 0.25, cacheWrite: 2.5, out: 15.0 },
   },
-  // Google lists 3.6 and 3.8 Flash at this price; 3.7 Flash is not listed and is
-  // assumed to cost the same.
+  // 3.6 and 3.8 Flash from the pricing page; 3.7 Flash input and output from its
+  // model card (https://deepmind.google/models/model-cards/gemini-3-7-flash/),
+  // which lists no cached price.
   gemini_3_6_flash: {
     label: 'Gemini 3.6–3.8 Flash ($0.75/$0.075/$3.75 · from 2027-01-01 $1.50/$0.15/$7.50)',
     shortLabel: 'Gemini 3.6–3.8 Flash',

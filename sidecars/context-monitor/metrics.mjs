@@ -16,7 +16,10 @@ const LS_ADDR = process.env.ANTIGRAVITY_LS_ADDRESS || '';
 const CSRF_TOKEN = process.env.ANTIGRAVITY_CSRF_TOKEN || '';
 const APP_DIRS = ['antigravity', 'antigravity-ide', 'antigravity-cli'];
 const DEFAULT_PHYSICAL_MAX_CONTEXT = 1048576; // 1M physical window for Gemini 3 / 4
-const DEFAULT_COMPACTION_MAX_CONTEXT = 256000; // Antigravity checkpointer soft limit (256k)
+// Used when the RPC reports no limit. Google does not document the threshold;
+// community measurements put it at about 256k tokens on Gemini 3.8 Flash
+// (https://github.com/google-antigravity/antigravity-cli/issues/878).
+const DEFAULT_COMPACTION_MAX_CONTEXT = 256000;
 
 export function parseDurationSec(dur) {
   if (!dur) return 0;

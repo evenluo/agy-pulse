@@ -32,6 +32,9 @@ describe('Pricing & Cost Engine', () => {
       'Claude Opus 5.5': 'claude_opus_5_5',
       'claude-opus-5-5': 'claude_opus_5_5',
       'Claude Opus 5.5 (Thinking)': 'claude_opus_5_5',
+      // RPC turns join the display name with an opaque model ID.
+      'Claude Opus 5.5 (Thinking) MODEL_PLACEHOLDER_M26': 'claude_opus_5_5',
+      'Gemini 3.8 Flash MODEL_PLACEHOLDER_M26': 'gemini_3_6_flash',
       'Claude Opus 4.6 (Thinking)': 'claude_opus',
       'Claude Sonnet 5.5 (Thinking)': 'claude_sonnet_5_5',
       'claude-sonnet-5-5-20261001': 'claude_sonnet_5_5',
