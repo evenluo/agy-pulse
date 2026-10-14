@@ -61,7 +61,7 @@ describe('Pricing & Cost Engine', () => {
     assert.ok(Math.abs(highRes.costUsd - 0.46) < 1e-9);
   });
 
-  it('bills Gemini 4 Argon and Claude 4.6+ without a 200k tier, and Argon by the date of each turn', () => {
+  it('bills Gemini 4 Argon and Claude 4.6 or later without a 200k tier, and Argon by the date of each turn', () => {
     const turn = (createdAt) => ({
       inUncached: 50_000,
       inCached: 200_000,
@@ -197,6 +197,10 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
     // The 225k turn runs on Claude Sonnet 4.6, which has no long-context tier.
     assert.equal(metrics.summary.highTierTurnCount, 0);
     assert.equal(metrics.summary.priceTierThreshold, 0);
+
+    const forced = await getConversationMetrics('conv-12345678', 'gemini_3_1_pro');
+    assert.equal(forced.summary.priceTierThreshold, 200000);
+    assert.equal(forced.summary.highTierTurnCount, 1);
     assert.equal(metrics.modelStats.length, 2);
   });
 

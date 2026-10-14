@@ -80,7 +80,7 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 | E2E TPS | 输出 Token ÷（TTFT + 流式耗时），即体感速度。 |
 | Decode TPS | 输出 Token ÷ 流式耗时。流式耗时低于 0.15 秒的轮次视为整包缓冲，不参与计算。 |
 | 会话均值 | 有效轮次的总 Token ÷ 总秒数，避免短轮次拉偏结果。中断轮次（后接 `ERROR_MESSAGE`）不参与计算。 |
-| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。Gemini 3.1 Pro 和 2.5 Pro 单轮输入超过 200k 时使用高阶梯价。Gemini 4 Argon 和 Claude 4.6+ 没有该阶梯；Argon 从 2026-12-01 起的轮次按翻倍后的价格计算。“缓存节省”与全部输入按未缓存计价的结果比较。 |
+| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。Gemini 3.1 Pro 和 2.5 Pro 单轮输入超过 200k 时使用高阶梯价。Gemini 4 Argon 和 Claude 4.6 及以后的模型没有该阶梯；Argon 从 2026-12-01 起的轮次按翻倍后的价格计算。“缓存节省”与全部输入按未缓存计价的结果比较。 |
 
 价格表位于 [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs)。模型名按关键字映射到价格方案（`opus`、`sonnet`/`claude`、`flash`、`argon`/`gemini 4`、`2.5`，其余按 Gemini 3.1 Pro）。可以在计价下拉框中手动指定。
 

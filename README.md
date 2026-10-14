@@ -80,7 +80,7 @@ When both are available, RPC values win and the transcript fills gaps.
 | E2E TPS | Output tokens ÷ (TTFT + streaming time). This is the speed you perceive. |
 | Decode TPS | Output tokens ÷ streaming time. Turns with less than 0.15 s of streaming are skipped as buffered. |
 | Session averages | Total tokens ÷ total seconds over valid turns, so short turns do not skew the result. Interrupted turns (followed by `ERROR_MESSAGE`) are excluded. |
-| Cost | Per turn, with that turn's model: uncached input, cached input, cache writes, and output at list price. For Gemini 3.1 Pro and 2.5 Pro, a turn whose input exceeds 200k uses the high tier. Gemini 4 Argon and Claude 4.6+ have no such tier; Argon's price doubles for turns from 2026-12-01. "Saved by cache" compares against all input billed as uncached. |
+| Cost | Per turn, with that turn's model: uncached input, cached input, cache writes, and output at list price. For Gemini 3.1 Pro and 2.5 Pro, a turn whose input exceeds 200k uses the high tier. Gemini 4 Argon and Claude 4.6 or later have no such tier; Argon's price doubles for turns from 2026-12-01. "Saved by cache" compares against all input billed as uncached. |
 
 Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs). Model names map to a profile by keyword (`opus`, `sonnet`/`claude`, `flash`, `argon`/`gemini 4`, `2.5`, otherwise Gemini 3.1 Pro). You can override the mapping from the pricing selector.
 

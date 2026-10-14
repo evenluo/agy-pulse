@@ -2,10 +2,11 @@
 //
 // Prices follow the vendors' public list prices. A profile with `tierThreshold`
 // bills a request whose input exceeds it at the `high` rates. A profile with
-// `priceChange` bills turns from that date (UTC) at `priceChange.base`.
+// `priceChange` bills turns from that date at `priceChange.base`; the date is read
+// as UTC midnight, an assumption where the vendor names no timezone.
 // Update this table when vendors change prices:
 //   - Gemini: https://ai.google.dev/gemini-api/docs/pricing
-//   - Claude: https://docs.anthropic.com/en/docs/about-claude/pricing
+//   - Claude: https://platform.claude.com/docs/en/about-claude/pricing
 
 export const PRICING_PROFILES = {
   gemini_4_argon: {
@@ -32,19 +33,20 @@ export const PRICING_PROFILES = {
     high: { inUncached: 2.5, inCached: 0.25, cacheWrite: 2.5, out: 15.0 },
   },
   gemini_flash: {
-    label: 'Gemini 2.5 / 3 Flash ($0.30/$0.03/$2.50)',
-    shortLabel: 'Gemini Flash',
+    label: 'Gemini 2.5 Flash ($0.30/$0.03/$2.50)',
+    shortLabel: 'Gemini 2.5 Flash',
     base: { inUncached: 0.3, inCached: 0.03, cacheWrite: 0.3, out: 2.5 },
   },
-  // Claude 4.6 and later bill the full 1M window at the standard price.
+  // Claude 4.6 and later bill the full 1M window at the standard price. Sonnet 5.x
+  // and Opus 5.5 cost less than these profiles.
   claude_sonnet: {
-    label: 'Claude Sonnet 4.6+ ($3/$0.3/$15)',
-    shortLabel: 'Claude Sonnet 4.6+',
+    label: 'Claude Sonnet 4.6 ($3/$0.3/$15)',
+    shortLabel: 'Claude Sonnet 4.6',
     base: { inUncached: 3.0, inCached: 0.3, cacheWrite: 3.75, out: 15.0 },
   },
   claude_opus: {
-    label: 'Claude Opus 4.6+ ($5/$0.5/$25)',
-    shortLabel: 'Claude Opus 4.6+',
+    label: 'Claude Opus 4.6–5 ($5/$0.5/$25)',
+    shortLabel: 'Claude Opus 4.6–5',
     base: { inUncached: 5.0, inCached: 0.5, cacheWrite: 6.25, out: 25.0 },
   },
 };
