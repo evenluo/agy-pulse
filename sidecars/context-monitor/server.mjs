@@ -10,6 +10,19 @@ import { getConversationMetrics } from './metrics.mjs';
 const BIND_HOST = '127.0.0.1';
 const PORT = parseInt(process.env.ANTIGRAVITY_SIDECAR_WEB_PORT || '18990', 10);
 
+// Only loopback names may appear in the Host header, so a web page that points
+// its own domain at 127.0.0.1 (DNS rebinding) cannot read the API. The port is
+// not checked.
+const ALLOWED_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+function hostnameOf(host) {
+  try {
+    return new URL(`http://${host}`).hostname;
+  } catch {
+    return '';
+  }
+}
+
 // Read on each request so UI edits show up without a restart (`node --watch`
 // only watches the module graph).
 function readUi(name) {
@@ -22,6 +35,13 @@ function send(res, status, contentType, body) {
 }
 
 const server = createServer(async (req, res) => {
+  const host = req.headers.host || '';
+  if (!ALLOWED_HOSTNAMES.has(hostnameOf(host))) {
+    console.warn(`[context-monitor] rejected request with Host ${JSON.stringify(host)}`);
+    send(res, 403, 'application/json', JSON.stringify({ error: 'Forbidden host' }));
+    return;
+  }
+
   const url = new URL(req.url || '/', `http://${BIND_HOST}:${PORT}`);
 
   if (url.pathname === '/' || url.pathname === '/index.html') {

@@ -96,7 +96,7 @@ Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor
 
 - The server binds to `127.0.0.1` only. It does not send data anywhere.
 - The only outbound request is to the local Antigravity Language Server, with the CSRF token that Antigravity injects. The installer makes the same kind of request to apply the config change live.
-- The panel shows the first 80 characters of the conversation's first prompt as its title. Any local process that can reach the port can read the same data from `/api/metrics`. The server does not check the `Host` header, so a web page that uses DNS rebinding could read it too.
+- The panel shows the first 80 characters of the conversation's first prompt as its title. Any local process that can reach the port can read the same data from `/api/metrics`. The server answers only requests whose `Host` is `127.0.0.1`, `localhost`, or `[::1]`, so a web page cannot read it through DNS rebinding.
 - The page loads no external scripts, styles, or fonts.
 
 Report vulnerabilities privately through [GitHub security advisories](https://github.com/evenluo/agy-pulse/security/advisories/new).
@@ -115,6 +115,7 @@ Report vulnerabilities privately through [GitHub security advisories](https://gi
 | No **Context & TPS** tab | Run `node install.mjs --status`. Restart Antigravity after the first install. |
 | Badge shows **Transcript** inside Antigravity | The Language Server did not answer. Metrics still work, with lower precision. |
 | Panel is empty | No transcript exists yet under `~/.gemini/antigravity*/brain/`. Send a message first. |
+| Panel shows `Forbidden host` | The request used a host name other than `127.0.0.1`, `localhost`, or `[::1]`. The sidecar log shows the rejected `Host`; please [open an issue](https://github.com/evenluo/agy-pulse/issues) with it. |
 | Two panels appear | Standalone and plugin installs are both enabled. Rerun the installer in the mode you want; it disables the other entry. |
 
 ## Development

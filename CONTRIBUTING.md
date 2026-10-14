@@ -6,7 +6,7 @@ Issues and pull requests are welcome. For a large change, open an issue first so
 
 - **No runtime dependencies.** The sidecar and the installer use Node.js built-ins only, so users never run `npm install`.
 - **No external resources in the panel.** No CDN scripts, styles, or fonts. The panel must work offline.
-- **Loopback only.** The server binds to `127.0.0.1` and makes no outbound requests other than to the local Language Server.
+- **Loopback only.** The server binds to `127.0.0.1`, answers only loopback `Host` names, and makes no outbound requests other than to the local Language Server.
 - **Never lose user config.** The installer must leave `config.json` untouched when it cannot parse it.
 
 ## Layout

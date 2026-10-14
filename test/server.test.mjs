@@ -1,10 +1,22 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { server } from '../sidecars/context-monitor/server.mjs';
+
+function getWithHost(port, host) {
+  return new Promise((resolve, reject) => {
+    const req = request({ host: '127.0.0.1', port, path: '/api/metrics', headers: { host } }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 const readUi = (name) =>
   readFileSync(new URL(`../sidecars/context-monitor/ui/${name}`, import.meta.url), 'utf-8');
@@ -54,5 +66,16 @@ describe('Offline UI & HTTP Server', () => {
     const missing = await fetch(`${baseUrl}/unknown-route`);
     assert.equal(missing.status, 404);
     await missing.text();
+  });
+
+  it('accepts loopback Host names on any port and rejects others (DNS rebinding)', async (t) => {
+    t.mock.method(console, 'warn', () => {});
+    const { port } = server.address();
+    for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, 'LOCALHOST:1', 'localhost']) {
+      assert.equal(await getWithHost(port, host), 200, host);
+    }
+    for (const host of [`evil.example:${port}`, 'evil.example', `127.0.0.1.nip.io:${port}`, 'localhost.:1']) {
+      assert.equal(await getWithHost(port, host), 403, host);
+    }
   });
 });
