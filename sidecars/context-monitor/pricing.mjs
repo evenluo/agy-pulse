@@ -32,13 +32,38 @@ export const PRICING_PROFILES = {
     base: { inUncached: 1.25, inCached: 0.125, cacheWrite: 1.25, out: 10.0 },
     high: { inUncached: 2.5, inCached: 0.25, cacheWrite: 2.5, out: 15.0 },
   },
+  // Google lists 3.6 and 3.8 Flash at this price; 3.7 Flash is not listed and is
+  // assumed to cost the same.
+  gemini_3_6_flash: {
+    label: 'Gemini 3.6–3.8 Flash ($0.75/$0.075/$3.75 · from 2027-01-01 $1.50/$0.15/$7.50)',
+    shortLabel: 'Gemini 3.6–3.8 Flash',
+    base: { inUncached: 0.75, inCached: 0.075, cacheWrite: 0.75, out: 3.75 },
+    priceChange: {
+      from: '2027-01-01',
+      base: { inUncached: 1.5, inCached: 0.15, cacheWrite: 1.5, out: 7.5 },
+    },
+  },
+  gemini_3_flash: {
+    label: 'Gemini 3 Flash ($0.50/$0.05/$3)',
+    shortLabel: 'Gemini 3 Flash',
+    base: { inUncached: 0.5, inCached: 0.05, cacheWrite: 0.5, out: 3.0 },
+  },
   gemini_flash: {
     label: 'Gemini 2.5 Flash ($0.30/$0.03/$2.50)',
     shortLabel: 'Gemini 2.5 Flash',
     base: { inUncached: 0.3, inCached: 0.03, cacheWrite: 0.3, out: 2.5 },
   },
-  // Claude 4.6 and later bill the full 1M window at the standard price. Sonnet 5.x
-  // and Opus 5.5 cost less than these profiles.
+  // Claude 4.6 and later bill the full 1M window at the standard price.
+  claude_opus_5_5: {
+    label: 'Claude Opus 5.5 ($4/$0.2/$20)',
+    shortLabel: 'Claude Opus 5.5',
+    base: { inUncached: 4.0, inCached: 0.2, cacheWrite: 5.0, out: 20.0 },
+  },
+  claude_sonnet_5_5: {
+    label: 'Claude Sonnet 5.5 ($2/$0.1/$10)',
+    shortLabel: 'Claude Sonnet 5.5',
+    base: { inUncached: 2.0, inCached: 0.1, cacheWrite: 2.5, out: 10.0 },
+  },
   claude_sonnet: {
     label: 'Claude Sonnet 4.6 ($3/$0.3/$15)',
     shortLabel: 'Claude Sonnet 4.6',
@@ -51,14 +76,32 @@ export const PRICING_PROFILES = {
   },
 };
 
+// The version written next to a model family: "Claude Sonnet 4.6" and
+// "claude-sonnet-4-6-20260101" give "4.6" for sonnet, "gemini-3.8-flash-001" gives
+// "3.8" for flash. Versions have one or two digits per part, so suffixes such as
+// "-001" or a date are not read as one. Returns '' when there is none.
+function versionOf(m, family) {
+  const s = m.replace(/(\d)[-_](\d)(?!\d)/g, '$1.$2');
+  const version = '(\\d{1,2}(?:\\.\\d{1,2})?)(?![\\d.])';
+  const after = s.match(new RegExp(`${family}[ -]${version}`));
+  const before = s.match(new RegExp(`${version}[ -]${family}`));
+  return (after || before || [])[1] || '';
+}
+
 export function resolvePricingProfileKey(modelName, requestedProfile) {
   if (requestedProfile && requestedProfile !== 'auto' && PRICING_PROFILES[requestedProfile]) {
     return requestedProfile;
   }
   const m = String(modelName || '').toLowerCase();
-  if (m.includes('opus')) return 'claude_opus';
-  if (m.includes('claude') || m.includes('sonnet')) return 'claude_sonnet';
-  if (m.includes('flash')) return 'gemini_flash';
+  if (m.includes('opus')) return versionOf(m, 'opus') === '5.5' ? 'claude_opus_5_5' : 'claude_opus';
+  if (m.includes('claude') || m.includes('sonnet')) {
+    return versionOf(m, 'sonnet') === '5.5' ? 'claude_sonnet_5_5' : 'claude_sonnet';
+  }
+  if (m.includes('flash')) {
+    const v = versionOf(m, 'flash');
+    if (v === '3.6' || v === '3.7' || v === '3.8') return 'gemini_3_6_flash';
+    return v === '3' ? 'gemini_3_flash' : 'gemini_flash';
+  }
   if (m.includes('argon') || m.includes('gemini 4') || m.includes('gemini-4')) return 'gemini_4_argon';
   if (m.includes('2.5')) return 'gemini_pro';
   return 'gemini_3_1_pro';
