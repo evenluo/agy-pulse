@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-15
+
+First release under the name agy-pulse. Upgrading from 0.1.0:
+
+- Node.js 20 or later is required.
+- The `ANTIGRAVITY_SIDECAR_UI_TOKEN` check is gone; nothing needs to be configured instead.
+- The sidecar ID and `config.json` keys are unchanged, so rerunning `node install.mjs` updates an existing install in place.
+
 ### Security
 
 - The server rejects requests whose `Host` header is not `127.0.0.1`, `localhost`, or `[::1]` (HTTP 403), so a web page cannot read `/api/metrics` through DNS rebinding.
@@ -46,6 +54,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - README sections on data sources, metric definitions, privacy, limitations, and troubleshooting; screenshots.
 - `CONTRIBUTING.md`, `AGENTS.md`, `SECURITY.md`, and a demo fixture for local development.
 
-## [1.0.0] - 2026-10-14
+## [0.1.0] - 2026-10-14
 
-- Initial release.
+- Initial release. Its commit message calls it v1.0.0; it was renumbered before any tag was published.
+
+[Unreleased]: https://github.com/evenluo/agy-pulse/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/evenluo/agy-pulse/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/evenluo/agy-pulse/releases/tag/v0.1.0
