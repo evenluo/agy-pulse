@@ -4,9 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-16
+
+Upgrading from 0.2.0: rerun `node install.mjs`. If the Antigravity CLI is installed, this also adds the status line.
+
 ### Added
 
-- Antigravity CLI `statusLine` renderer (`sidecars/context-monitor/statusline.mjs`), sharing `metrics.mjs` and `pricing.mjs` with the panel to display model and thinking effort, git branch, turn and compaction counts, context window usage, prompt cache hit rate, session tokens and API cost, and filtered session average TPS. When the Antigravity CLI is installed, `install.mjs` configures and cleans up `statusLine` in `~/.gemini/antigravity-cli/settings.json` (overridable via `--cli-settings` or `AGY_CLI_SETTINGS_PATH`) and keeps a `statusLine` the user set up.
+- A status line for the Antigravity CLI (`statusline.mjs`) shows model and thinking effort, git branch, turns and compactions, context usage, prompt cache hit rate, session tokens and cost, and average speed, from the same data as the panel. When the CLI is installed, `install.mjs` sets it as `statusLine` in `~/.gemini/antigravity-cli/settings.json` (`--cli-settings` or `AGY_CLI_SETTINGS_PATH` change the path), keeps a `statusLine` you set up yourself, and `--uninstall` removes only its own.
 
 ### Changed
 
@@ -73,6 +77,7 @@ First release under the name agy-pulse. Upgrading from 0.1.0:
 
 - Initial release. Its commit message calls it v1.0.0; it was renumbered before any tag was published.
 
-[Unreleased]: https://github.com/evenluo/agy-pulse/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/evenluo/agy-pulse/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/evenluo/agy-pulse/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/evenluo/agy-pulse/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/evenluo/agy-pulse/releases/tag/v0.1.0
