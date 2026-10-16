@@ -32,21 +32,21 @@ git clone https://github.com/evenluo/agy-pulse.git
 node agy-pulse/install.mjs
 ```
 
-This copies the sidecar to `~/.gemini/config/sidecars/context-monitor/` and sets `sidecars["context-monitor"].enabled = true` in `~/.gemini/config/config.json`. Other settings in that file stay as they are. If the file is not valid JSON, the installer stops and changes nothing.
+This copies the sidecar to `~/.gemini/config/sidecars/context-monitor/`, sets `sidecars["context-monitor"].enabled = true` in `~/.gemini/config/config.json`, and configures the Antigravity CLI `statusLine` in `~/.gemini/antigravity-cli/settings.json` to run `statusline.mjs` (showing model, thinking effort, git branch, turn and compaction counts, context bar, prompt cache hit rate, session tokens/cost, and session average TPS). Other settings in those files stay as they are. If either file is not valid JSON, the installer stops and changes nothing.
 
 Other ways to install:
 
 | Mode | Command | Result |
 | :--- | :--- | :--- |
 | Plugin bundle (sidecar + agent skill) | `node agy-pulse/install.mjs --plugin` | Copies the repo to `~/.gemini/config/plugins/context-monitor/` and enables it. |
-| Antigravity CLI | `agy plugin install https://github.com/evenluo/agy-pulse`, then `node ~/.gemini/config/plugins/<plugin-dir>/install.mjs` | The second command enables the sidecar of the installed plugin. |
+| Antigravity CLI | `agy plugin install https://github.com/evenluo/agy-pulse`, then `node ~/.gemini/config/plugins/<plugin-dir>/install.mjs` | The second command enables the sidecar and CLI `statusLine` of the installed plugin. |
 | Per workspace | Copy the repo to `.agents/plugins/context-monitor/` in your project | Everyone who opens the workspace gets the plugin. |
 
 Installer commands:
 
 ```bash
 node install.mjs --status      # show what is installed and enabled
-node install.mjs --uninstall   # disable in config.json and remove installed files
+node install.mjs --uninstall   # disable in config.json / settings.json and remove installed files
 node install.mjs --help
 ```
 
@@ -91,6 +91,7 @@ Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor
 | `ANTIGRAVITY_SIDECAR_WEB_PORT` | `18990` | Port of the panel server. Antigravity sets it for the sidecar. |
 | `AGY_GEMINI_ROOT` | `~/.gemini` | Where to look for transcripts. |
 | `AGY_CONFIG_DIR` | `~/.gemini/config` | Target of the installer. `--config-dir <path>` does the same. |
+| `AGY_CLI_SETTINGS_PATH` | `~/.gemini/antigravity-cli/settings.json` | Target CLI settings file for `statusLine`. `--cli-settings <path>` does the same. |
 
 ## Privacy and security
 

@@ -103,15 +103,15 @@ export function discoverLocalTranscripts() {
   return items;
 }
 
-export function parseTranscriptMetrics(transcriptPath) {
+export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
   if (!transcriptPath || !existsSync(transcriptPath)) {
-    return { turns: [], firstUserPrompt: '', modelHint: '', checkpointCount: 0 };
+    return { turns: [], firstUserPrompt: '', modelHint: '', detectedModel: '', checkpointCount: 0 };
   }
   let raw = '';
   try {
     raw = readFileSync(transcriptPath, 'utf-8');
   } catch {
-    return { turns: [], firstUserPrompt: '', modelHint: '', checkpointCount: 0 };
+    return { turns: [], firstUserPrompt: '', modelHint: '', detectedModel: '', checkpointCount: 0 };
   }
 
   const lines = raw.split('\n').filter((l) => l.trim().length > 0);
@@ -191,6 +191,9 @@ export function parseTranscriptMetrics(transcriptPath) {
       }
 
       const stepModelId = s.model || s.model_id || s.response_model || currentModel || '';
+      if (stepModelId && !modelHint) {
+        modelHint = stepModelId;
+      }
 
       turns.push({
         turn: turns.length + 1,
@@ -221,13 +224,14 @@ export function parseTranscriptMetrics(transcriptPath) {
     }
   }
 
-  const fallbackModel = currentModel || modelHint || 'Gemini 3.1 Pro (High)';
+  const detectedModel = currentModel || modelHint || '';
+  const fallbackModel = detectedModel || fallbackModelName || 'Gemini 3.1 Pro (High)';
   for (const t of turns) {
     if (!t.model) t.model = fallbackModel;
     if (!t.modelId) t.modelId = t.model;
   }
 
-  return { turns, firstUserPrompt, modelHint: fallbackModel, checkpointCount };
+  return { turns, firstUserPrompt, modelHint: fallbackModel, detectedModel, checkpointCount };
 }
 
 function median(values) {
@@ -253,16 +257,26 @@ function selectE2eSampleTurns(turns) {
   return sample.filter((t) => t.source !== 'transcript' || t.e2eTps >= floor);
 }
 
-export async function getConversationMetrics(requestedConvId, requestedPricing) {
-  const localList = discoverLocalTranscripts();
+export async function getConversationMetrics(requestedConvId, requestedPricing, options = {}) {
+  const explicitPath =
+    options.transcriptPath && existsSync(options.transcriptPath) ? options.transcriptPath : '';
+  const localList = explicitPath ? [] : discoverLocalTranscripts();
   // A requested conversation without a local transcript still gets RPC data;
   // it never falls back to another conversation's transcript.
-  const targetEntry = requestedConvId
-    ? localList.find((x) => x.conversationId === requestedConvId) || null
-    : localList[0] || null;
+  const targetEntry = explicitPath
+    ? {
+        conversationId: requestedConvId || '',
+        surface: 'antigravity-cli',
+        transcriptPath: explicitPath,
+        mtimeMs: 0,
+        updatedAt: new Date().toISOString(),
+      }
+    : requestedConvId
+      ? localList.find((x) => x.conversationId === requestedConvId) || null
+      : localList[0] || null;
 
   const conversationId = requestedConvId || targetEntry?.conversationId || '';
-  const transcriptData = parseTranscriptMetrics(targetEntry?.transcriptPath);
+  const transcriptData = parseTranscriptMetrics(targetEntry?.transcriptPath, options.fallbackModel);
 
   // Attempt RPC call to LanguageServerService for millisecond-level TTFT & streamingDuration
   const rpcMeta = conversationId
@@ -276,6 +290,7 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
   const turns = [];
   let activeModel = transcriptData.modelHint || 'Gemini 3.1 Pro (High)';
   let latestTokenBreakdown = null;
+  let maxRpcCheckpointIndex = 0;
 
   const tTurnByStep = new Map();
   for (const tt of transcriptData.turns) {
@@ -295,6 +310,10 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
 
       const usage = cm.usage || {};
       const ctxMeta = cm.chatStartMetadata?.contextWindowMetadata || {};
+      const cpIdx = Number(ctxMeta.checkpointIndex || 0);
+      if (cpIdx > maxRpcCheckpointIndex) {
+        maxRpcCheckpointIndex = cpIdx;
+      }
       const inUncached = Number(usage.inputTokens ?? tTurn?.inUncached ?? 0);
       const inCached = Number(usage.cacheReadTokens ?? tTurn?.inCached ?? 0);
       const cacheWriteTokens = Number(usage.cacheWriteTokens ?? 0);
@@ -575,11 +594,12 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
     updatedAt: targetEntry?.updatedAt || new Date().toISOString(),
     title: transcriptData.firstUserPrompt || conversationId.slice(0, 8),
     model: activeModel || 'Gemini',
+    detectedModel: rpcItems.length > 0 ? activeModel : transcriptData.detectedModel || '',
     rpcConnected: rpcItems.length > 0,
     summary: {
       turnCount: turns.length,
       modelCount: modelStats.length,
-      checkpointCount: transcriptData.checkpointCount || 0,
+      checkpointCount: Math.max(transcriptData.checkpointCount || 0, maxRpcCheckpointIndex),
       contextUsed,
       maxContext,
       contextUsedPct,

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import {
   PRICING_PROFILES,
@@ -14,6 +15,11 @@ import {
   parseTranscriptMetrics,
   getConversationMetrics,
 } from '../sidecars/context-monitor/metrics.mjs';
+import {
+  formatStatusLine,
+  resolveGitBranch,
+  splitModelAndEffort,
+} from '../sidecars/context-monitor/statusline.mjs';
 
 describe('Pricing & Cost Engine', () => {
   it('resolves model names to accurate pricing profiles in auto mode', () => {
@@ -350,4 +356,122 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
     assert.equal(metrics.modelStats[0].avgE2eTps, 1400 / 16);
   });
 });
+
+describe('CLI StatusLine Renderer (statusline.mjs)', () => {
+  const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
+
+  it('splits model name and thinking effort cleanly', () => {
+    assert.deepEqual(splitModelAndEffort('models/Gemini 3.1 Pro (High)'), {
+      model: 'Gemini 3.1 Pro',
+      effort: 'High',
+    });
+    assert.deepEqual(splitModelAndEffort('Gemini 4 Argon', 'max'), {
+      model: 'Gemini 4 Argon',
+      effort: 'max',
+    });
+  });
+
+  it('resolves git branch from vcs payload, .git directory, and worktree .git file', () => {
+    assert.deepEqual(resolveGitBranch({ vcs: { branch: 'feat/pulse', dirty: true } }), {
+      branch: 'feat/pulse',
+      dirty: true,
+    });
+
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-git-test-'));
+    try {
+      const repoDir = join(tmp, 'repo');
+      const subDir = join(repoDir, 'packages', 'ui');
+      mkdirSync(join(repoDir, '.git'), { recursive: true });
+      mkdirSync(subDir, { recursive: true });
+      writeFileSync(join(repoDir, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      assert.deepEqual(resolveGitBranch({ workspace: { current_dir: subDir } }), {
+        branch: 'main',
+        dirty: false,
+      });
+
+      const wtDir = join(tmp, 'worktree');
+      const gitDir = join(tmp, 'actual-gitdir');
+      mkdirSync(wtDir, { recursive: true });
+      mkdirSync(gitDir, { recursive: true });
+      writeFileSync(join(wtDir, '.git'), 'gitdir: ../actual-gitdir\n');
+      writeFileSync(join(gitDir, 'HEAD'), 'ref: refs/heads/wt-branch\n');
+      assert.deepEqual(resolveGitBranch({ cwd: wtDir }), {
+        branch: 'wt-branch',
+        dirty: false,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('renders model, effort, branch, turns + compact count, context, cache, cost, and filtered avg TPS', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-statusline-test-'));
+    try {
+      const tPath = join(tmp, 'transcript.jsonl');
+      const lines = [
+        JSON.stringify({ step_index: 0, type: 'CHECKPOINT', created_at: '2026-10-16T08:00:00Z' }),
+        JSON.stringify({
+          step_index: 1,
+          type: 'PLANNER_RESPONSE',
+          created_at: '2026-10-16T08:00:01Z',
+          input_tokens: 20000,
+          cache_read_tokens: 80000,
+          output_tokens: 500,
+        }),
+        JSON.stringify({ step_index: 2, type: 'GENERIC', created_at: '2026-10-16T08:00:06Z' }),
+      ];
+      writeFileSync(tPath, lines.join('\n') + '\n');
+
+      const out = await formatStatusLine({
+        conversation_id: 'conv-statusline-1',
+        transcript_path: pathToFileURL(tPath).href,
+        model: { display_name: 'Gemini 4 Argon', effort: 'high' },
+        vcs: { branch: 'feat/statusline', dirty: true },
+        context_window: {
+          current_usage: { input_tokens: 20000, cache_read_input_tokens: 80000, output_tokens: 500 },
+          context_window_size: 1048576,
+        },
+      });
+      const plain = stripAnsi(out);
+      assert.match(plain, /^Gemini 4 Argon \[high\] │ ⎇ feat\/statusline\* │ Turns: 1 \(Compact: 1\)/);
+      assert.match(plain, /Ctx: 100\.0k\/1\.05M \(9\.5%\)/);
+      assert.match(plain, /Cache: 80\.0% \(80\.0k\)/);
+      assert.match(plain, /ΣTok: 100\.5k \(\$0\.053\)/);
+      assert.match(plain, /Avg: ~100 tok\/s$/);
+      assert.doesNotMatch(plain, /\bOut:/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('does not leak another conversation transcript when conversation_id is missing and avoids cross-model effort mismatch', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-statusline-settings-'));
+    try {
+      const settingsPath = join(tmp, 'settings.json');
+      writeFileSync(settingsPath, JSON.stringify({ model: 'Gemini 3.1 Pro (High)' }));
+
+      const out = await formatStatusLine(
+        {
+          model: { display_name: 'Claude Sonnet 4.6' },
+          vcs: { branch: 'main', dirty: false },
+          context_window: {
+            current_usage: { input_tokens: 10000, cache_read_input_tokens: 30000, output_tokens: 1000 },
+            context_window_size: 1048576,
+          },
+        },
+        { settingsPath }
+      );
+      const plain = stripAnsi(out);
+      // Should NOT attach [High] from Gemini 3.1 Pro onto Claude Sonnet 4.6
+      assert.match(plain, /^Claude Sonnet 4\.6 │ ⎇ main │ Turns: 0 \(Compact: 0\)/);
+      // Single-turn fallback cost via pricing.mjs for Claude Sonnet 4.6 ($3/$0.3/$15):
+      // 10k * 3 + 30k * 0.3 + 1k * 15 = $0.03 + $0.009 + $0.015 = $0.054
+      assert.match(plain, /ΣTok: 41\.0k \(\$0\.054\)/);
+      assert.match(plain, /Avg: -- tok\/s$/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
 
