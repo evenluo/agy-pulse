@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- Antigravity CLI `statusLine` renderer (`sidecars/context-monitor/statusline.mjs`), sharing `metrics.mjs` and `pricing.mjs` with the panel to display model and thinking effort, git branch, turn and compaction counts, context window usage, prompt cache hit rate, session tokens and API cost, and filtered session average TPS. `install.mjs` configures and cleans up `statusLine` in `~/.gemini/antigravity-cli/settings.json` (overridable via `--cli-settings` or `AGY_CLI_SETTINGS_PATH`).
+- Antigravity CLI `statusLine` renderer (`sidecars/context-monitor/statusline.mjs`), sharing `metrics.mjs` and `pricing.mjs` with the panel to display model and thinking effort, git branch, turn and compaction counts, context window usage, prompt cache hit rate, session tokens and API cost, and filtered session average TPS. When the Antigravity CLI is installed, `install.mjs` configures and cleans up `statusLine` in `~/.gemini/antigravity-cli/settings.json` (overridable via `--cli-settings` or `AGY_CLI_SETTINGS_PATH`) and keeps a `statusLine` the user set up.
 
 ### Changed
 

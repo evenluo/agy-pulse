@@ -67,7 +67,8 @@ function parseArgs(argv) {
       throw new Error(`Unknown option: ${a}. Run with --help for usage.`);
     }
   }
-  if (!opts.cliSettingsPath && !configDirOverridden) {
+  // By default, touch the CLI settings only when the Antigravity CLI is installed.
+  if (!opts.cliSettingsPath && !configDirOverridden && existsSync(dirname(DEFAULT_CLI_SETTINGS_PATH))) {
     opts.cliSettingsPath = DEFAULT_CLI_SETTINGS_PATH;
   }
   return opts;
@@ -175,23 +176,28 @@ function formatStatusLineCommand(scriptPath) {
 
 function isManagedStatusLine(statusLine) {
   if (!statusLine || typeof statusLine !== 'object' || Array.isArray(statusLine)) return false;
-  const cmd = String(statusLine.command || '');
-  return cmd.includes('context-monitor') && cmd.includes('statusline.mjs');
+  return /sidecars[\\/]context-monitor[\\/]statusline\.mjs/.test(String(statusLine.command || ''));
 }
 
-function setManagedStatusLine(cliCfg, scriptPath) {
-  const prev =
-    cliCfg.statusLine && typeof cliCfg.statusLine === 'object' && !Array.isArray(cliCfg.statusLine)
-      ? cliCfg.statusLine
-      : {};
+// Point statusLine at our renderer, unless the user already has their own.
+function configureStatusLine(cliSettingsPath, cliCfg, scriptPath, log) {
+  if (!cliCfg) return;
+  const command = formatStatusLineCommand(scriptPath);
+  const prev = cliCfg.statusLine;
+  if (prev != null && !isManagedStatusLine(prev)) {
+    log(`[context-monitor] Kept your existing statusLine in ${cliSettingsPath}.`);
+    log(`[context-monitor] To use agy-pulse's instead, set statusLine.command to: ${command}`);
+    return;
+  }
   cliCfg.statusLine = {
-    ...prev,
+    ...(prev || {}),
     type: 'command',
-    command: formatStatusLineCommand(scriptPath),
+    command,
     enabled: true,
     stack_with_default:
-      typeof prev.stack_with_default === 'boolean' ? prev.stack_with_default : true,
+      typeof prev?.stack_with_default === 'boolean' ? prev.stack_with_default : true,
   };
+  writeConfigAtomic(cliSettingsPath, cliCfg);
 }
 
 export async function runCli(argv = process.argv.slice(2)) {
@@ -288,21 +294,10 @@ Options:
 
   if (targetMode === 'in-place-plugin') {
     const sidecarKey = `${containingPluginDir}/context-monitor`;
-    const statuslineScriptPath = join(
-      opts.configDir,
-      'plugins',
-      containingPluginDir,
-      'sidecars',
-      'context-monitor',
-      'statusline.mjs'
-    );
     cfg.plugins[containingPluginDir] = { ...(cfg.plugins[containingPluginDir] || {}), enabled: true };
     enableOnly(cfg, sidecarKey, keys);
     writeConfigAtomic(configPath, cfg);
-    if (cliCfg) {
-      setManagedStatusLine(cliCfg, statuslineScriptPath);
-      writeConfigAtomic(opts.cliSettingsPath, cliCfg);
-    }
+    configureStatusLine(opts.cliSettingsPath, cliCfg, join(srcSidecarDir, 'statusline.mjs'), log);
     await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars }, opts.configDir);
     log(`[context-monitor] Activated plugin sidecar: ${sidecarKey}`);
     return { ok: true, mode: 'in-place-plugin', sidecarId: sidecarKey };
@@ -329,19 +324,15 @@ Options:
         cpSync(src, dst, { recursive: true, force: true });
       }
     }
-    const statuslineScriptPath = join(
-      pluginInstallDir,
-      'sidecars',
-      'context-monitor',
-      'statusline.mjs'
-    );
     cfg.plugins['context-monitor'] = { ...(cfg.plugins['context-monitor'] || {}), enabled: true };
     enableOnly(cfg, 'context-monitor/context-monitor', keys);
     writeConfigAtomic(configPath, cfg);
-    if (cliCfg) {
-      setManagedStatusLine(cliCfg, statuslineScriptPath);
-      writeConfigAtomic(opts.cliSettingsPath, cliCfg);
-    }
+    configureStatusLine(
+      opts.cliSettingsPath,
+      cliCfg,
+      join(pluginInstallDir, 'sidecars', 'context-monitor', 'statusline.mjs'),
+      log
+    );
     await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars }, opts.configDir);
     log(`[context-monitor] Installed plugin bundle to ${pluginInstallDir}`);
     log(`[context-monitor] Enabled sidecar: context-monitor/context-monitor`);
@@ -357,13 +348,9 @@ Options:
   mkdirSync(standaloneDir, { recursive: true });
   cpSync(srcSidecarDir, standaloneDir, { recursive: true, force: true });
 
-  const statuslineScriptPath = join(standaloneDir, 'statusline.mjs');
   enableOnly(cfg, 'context-monitor', keys);
   writeConfigAtomic(configPath, cfg);
-  if (cliCfg) {
-    setManagedStatusLine(cliCfg, statuslineScriptPath);
-    writeConfigAtomic(opts.cliSettingsPath, cliCfg);
-  }
+  configureStatusLine(opts.cliSettingsPath, cliCfg, join(standaloneDir, 'statusline.mjs'), log);
   await tryNotifyLanguageServer({ sidecars: cfg.sidecars }, opts.configDir);
 
   log(`[context-monitor] Installed standalone sidecar to ${standaloneDir}`);

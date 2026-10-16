@@ -32,7 +32,7 @@ git clone https://github.com/evenluo/agy-pulse.git
 node agy-pulse/install.mjs
 ```
 
-This copies the sidecar to `~/.gemini/config/sidecars/context-monitor/`, sets `sidecars["context-monitor"].enabled = true` in `~/.gemini/config/config.json`, and configures the Antigravity CLI `statusLine` in `~/.gemini/antigravity-cli/settings.json` to run `statusline.mjs` (showing model, thinking effort, git branch, turn and compaction counts, context bar, prompt cache hit rate, session tokens/cost, and session average TPS). Other settings in those files stay as they are. If either file is not valid JSON, the installer stops and changes nothing.
+This copies the sidecar to `~/.gemini/config/sidecars/context-monitor/`, sets `sidecars["context-monitor"].enabled = true` in `~/.gemini/config/config.json`, and, if the Antigravity CLI is installed, points its `statusLine` in `~/.gemini/antigravity-cli/settings.json` at `statusline.mjs` (showing model, thinking effort, git branch, turn and compaction counts, context bar, prompt cache hit rate, session tokens/cost, and session average TPS). A `statusLine` you set up yourself is kept. Other settings in those files stay as they are. If either file is not valid JSON, the installer stops and changes nothing.
 
 Other ways to install:
 

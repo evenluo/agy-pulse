@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { spawn } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   PRICING_PROFILES,
@@ -464,14 +465,86 @@ describe('CLI StatusLine Renderer (statusline.mjs)', () => {
       const plain = stripAnsi(out);
       // Should NOT attach [High] from Gemini 3.1 Pro onto Claude Sonnet 4.6
       assert.match(plain, /^Claude Sonnet 4\.6 │ ⎇ main │ Turns: 0 \(Compact: 0\)/);
-      // Single-turn fallback cost via pricing.mjs for Claude Sonnet 4.6 ($3/$0.3/$15):
-      // 10k * 3 + 30k * 0.3 + 1k * 15 = $0.03 + $0.009 + $0.015 = $0.054
-      assert.match(plain, /ΣTok: 41\.0k \(\$0\.054\)/);
-      assert.match(plain, /Avg: -- tok\/s$/);
+      // Without a transcript there is no session total to show.
+      assert.doesNotMatch(plain, /ΣTok/);
+      assert.match(plain, /Cache: 75\.0% \(30\.0k\) │ Avg: -- tok\/s$/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+  it('pairs the host used_percentage with total_input + total_output and counts cache writes', async () => {
+    // Payload from https://antigravity.google/docs/cli/statusline
+    const out = await formatStatusLine({
+      model: { display_name: 'Gemini 3.1 Pro' },
+      context_window: {
+        total_input_tokens: 88244,
+        total_output_tokens: 61074,
+        context_window_size: 1048576,
+        used_percentage: 14.24,
+        current_usage: {
+          input_tokens: 63382,
+          output_tokens: 346,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 20857,
+        },
+      },
+    });
+    assert.match(stripAnsi(out), /Ctx: 149\.3k\/1\.05M \(14\.2%\)/);
+    assert.match(stripAnsi(out), /Cache: 24\.8% \(20\.9k\)/);
+
+    for (const used_percentage of [0, 'n/a']) {
+      const recomputed = await formatStatusLine({
+        context_window: { total_input_tokens: 104858, context_window_size: 1048576, used_percentage },
+      });
+      assert.match(stripAnsi(recomputed), /Ctx: 104\.9k\/1\.05M \(10\.0%\) \[█░░░░░░░\]/);
+    }
+
+    const withWrites = await formatStatusLine({
+      model: { display_name: 'Claude Opus 4.7' },
+      context_window: {
+        context_window_size: 1000000,
+        current_usage: {
+          input_tokens: 10000,
+          cache_creation_input_tokens: 30000,
+          cache_read_input_tokens: 60000,
+        },
+      },
+    });
+    assert.match(stripAnsi(withWrites), /Ctx: 100\.0k\/1\.00M \(10\.0%\)/);
+    assert.match(stripAnsi(withWrites), /Cache: 60\.0% \(60\.0k\)/);
+  });
+
+  it('renders without waiting for EOF when the CLI keeps stdin open', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-statusline-stdin-'));
+    const script = fileURLToPath(new URL('../sidecars/context-monitor/statusline.mjs', import.meta.url));
+    const run = (payload) =>
+      new Promise((resolveRun, rejectRun) => {
+        const child = spawn(process.execPath, [script], {
+          cwd: tmp,
+          env: { PATH: process.env.PATH, AGY_GEMINI_ROOT: tmp, AGY_CLI_SETTINGS_PATH: join(tmp, 's.json') },
+        });
+        let stdout = '';
+        child.stdout.on('data', (c) => (stdout += c));
+        const killer = setTimeout(() => {
+          child.kill();
+          rejectRun(new Error('statusline.mjs did not exit'));
+        }, 4000);
+        child.on('exit', (code) => {
+          clearTimeout(killer);
+          resolveRun({ code, stdout });
+        });
+        if (payload) child.stdin.write(payload); // never end()
+      });
+    try {
+      const rendered = await run(JSON.stringify({ model: { display_name: 'Gemini 3.1 Pro' } }));
+      assert.equal(rendered.code, 0);
+      assert.match(stripAnsi(rendered.stdout), /^Gemini 3\.1 Pro │ Turns: 0/);
+
+      const silent = await run('');
+      assert.equal(silent.code, 0);
+      assert.equal(silent.stdout, '');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 });
-
-

@@ -132,26 +132,32 @@ describe('Installer CLI (install.mjs)', () => {
       assert.equal(cliCfg.model, 'Gemini 3.1 Pro (High)');
       assert.equal(cliCfg.statusLine, undefined);
 
-      // An unrelated custom statusLine is preserved on --uninstall
-      writeFileSync(
-        cliSettingsPath,
-        JSON.stringify({
-          model: 'Gemini 3.1 Pro (High)',
-          statusLine: { type: 'command', command: 'echo custom', enabled: true },
-        })
-      );
-      await runCli([
-        '--uninstall',
-        '--config-dir',
-        dir,
-        '--cli-settings',
-        cliSettingsPath,
-        '--quiet',
-      ]);
-      cliCfg = JSON.parse(readFileSync(cliSettingsPath, 'utf-8'));
-      assert.equal(cliCfg.statusLine.command, 'echo custom');
+      // A custom statusLine survives both install and uninstall.
+      const custom = JSON.stringify({
+        model: 'Gemini 3.1 Pro (High)',
+        statusLine: { type: 'command', command: 'echo custom', enabled: true },
+      });
+      writeFileSync(cliSettingsPath, custom);
+      for (const mode of ['--standalone', '--uninstall']) {
+        await runCli([mode, '--config-dir', dir, '--cli-settings', cliSettingsPath, '--quiet']);
+        assert.equal(readFileSync(cliSettingsPath, 'utf-8'), custom, `${mode} changed settings.json`);
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves the CLI settings alone by default when the Antigravity CLI is not installed', () => {
+    const home = mkdtempSync(join(tmpdir(), 'agy-home-'));
+    try {
+      const installer = fileURLToPath(new URL('../install.mjs', import.meta.url));
+      execFileSync(process.execPath, [installer, '--standalone', '--quiet'], {
+        env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home },
+      });
+      assert.ok(existsSync(join(home, '.gemini', 'config', 'sidecars', 'context-monitor', 'statusline.mjs')));
+      assert.equal(existsSync(join(home, '.gemini', 'antigravity-cli')), false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
     }
   });
 

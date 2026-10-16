@@ -32,7 +32,7 @@ git clone https://github.com/evenluo/agy-pulse.git
 node agy-pulse/install.mjs
 ```
 
-安装脚本把 Sidecar 复制到 `~/.gemini/config/sidecars/context-monitor/`，在 `~/.gemini/config/config.json` 中设置 `sidecars["context-monitor"].enabled = true`，并在 `~/.gemini/antigravity-cli/settings.json` 中配置 Antigravity CLI 的 `statusLine` 指向 `statusline.mjs`（显示模型与推理强度、Git 分支、轮次与压缩次数、Context 进度条、Prompt Cache 命中率、会话累计 Token/费用及会话平均 TPS）。这两个文件中的其他设置保持不变。如果任一文件不是合法 JSON，安装脚本停止运行，不修改任何文件。
+安装脚本把 Sidecar 复制到 `~/.gemini/config/sidecars/context-monitor/`，在 `~/.gemini/config/config.json` 中设置 `sidecars["context-monitor"].enabled = true`，并在已安装 Antigravity CLI 时把 `~/.gemini/antigravity-cli/settings.json` 中的 `statusLine` 指向 `statusline.mjs`（显示模型与推理强度、Git 分支、轮次与压缩次数、Context 进度条、Prompt Cache 命中率、会话累计 Token/费用及会话平均 TPS）。你自己配置的 `statusLine` 会保留。这两个文件中的其他设置保持不变。如果任一文件不是合法 JSON，安装脚本停止运行，不修改任何文件。
 
 其他安装方式：
 
