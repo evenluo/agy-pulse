@@ -87,6 +87,7 @@
     .min-w-0 { min-width: 0; }
     .shrink-0 { flex-shrink: 0; }
     .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .whitespace-nowrap { white-space: nowrap; }
     .w-2 { width: 8px; }
     .h-2 { height: 8px; }
     .w-full { width: 100%; }
@@ -253,9 +254,9 @@
         <span class="text-base font-bold tabular-nums text-violet-400" id="mainTps">-- tok/s</span>
         <span class="muted tabular-nums text-[11px]" id="subTps"></span>
       </div>
-      <div class="flex justify-between gap-1 muted text-[11px] pt-0.5 border-t border-slate-500/10">
-        <span id="avgTps"></span>
-        <span id="peakTps"></span>
+      <div class="flex flex-wrap justify-between gap-1 muted text-[11px] pt-0.5 border-t border-slate-500/10">
+        <span id="lastTps" class="whitespace-nowrap"></span>
+        <span id="peakTps" class="whitespace-nowrap"></span>
       </div>
     </div>
 
@@ -390,8 +391,7 @@
         modeDec: "均值 · 仅解码",
         decode: "解码 {n}",
         visible: "正文 {n}",
-        avg: "均值 {n} tok/s",
-        last: "本轮 {n} tok/s",
+        lastMeasured: "最近测速 {n} tok/s",
         peak: "峰值 {n} tok/s",
         lastTurnTitle: "本轮",
         ttft: "首字 {n}s",
@@ -469,8 +469,7 @@
         modeDec: "avg · decode only",
         decode: "decode {n}",
         visible: "response {n}",
-        avg: "avg {n} tok/s",
-        last: "last {n} tok/s",
+        lastMeasured: "last measured {n} tok/s",
         peak: "peak {n} tok/s",
         lastTurnTitle: "Last turn",
         ttft: "TTFT {n}s",
@@ -760,16 +759,16 @@
       const avgVis = Number(s.avgVisibleE2eTps || 0);
       const lastE2e = Number(s.lastE2eTps || 0);
       const lastDec = Number(s.lastDecodeTps || 0);
-      const primaryTps = avgE2e > 0 ? avgE2e : (avgDec > 0 ? avgDec : (lastE2e > 0 ? lastE2e : lastDec));
-      const isE2eMode = avgE2e > 0 || (avgDec === 0 && lastE2e > 0);
-      document.getElementById("tpsModeLabel").textContent = isE2eMode ? tr("modeE2e") : tr("modeDec");
+      const primaryTps = avgE2e > 0 ? avgE2e : avgDec;
+      document.getElementById("tpsModeLabel").textContent = avgE2e > 0 ? tr("modeE2e") : tr("modeDec");
       document.getElementById("mainTps").textContent = primaryTps > 0 ? primaryTps.toFixed(1) + " tok/s" : "-- tok/s";
       const subParts = [];
       if (avgE2e > 0 && avgDec > 0) subParts.push(tr("decode", { n: avgDec.toFixed(1) }));
       if (avgVis > 0 && Number(s.totalThinkTokens || 0) > 0) subParts.push(tr("visible", { n: avgVis.toFixed(1) }));
       document.getElementById("subTps").textContent = subParts.join(" · ");
+      // The last turn with a measurable duration; a transcript's final reply has none.
       const lastTps = lastE2e > 0 ? lastE2e : lastDec;
-      document.getElementById("avgTps").textContent = tr("last", { n: lastTps > 0 ? lastTps.toFixed(1) : "--" });
+      document.getElementById("lastTps").textContent = tr("lastMeasured", { n: lastTps > 0 ? lastTps.toFixed(1) : "--" });
       document.getElementById("peakTps").textContent = tr("peak", { n: Number(s.peakE2eTps || s.peakTps || 0).toFixed(1) });
 
       // Without RPC there is no TTFT and no thinking split; show only what the data has.

@@ -6,13 +6,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
-- The Speed card now headlines the session time-weighted average TPS (`avgE2eTps` / `avgDecodeTps`) and moves the latest single-turn TPS to the card footer alongside peak TPS, preventing short tool-call steps from making the headline speed jump around.
+- The Speed card headlines the session's average speed instead of the last turn's, so short tool-call turns no longer make it jump around. The footer shows the speed of the last turn with a measured duration next to the peak.
+- Without RPC, a turn slower than 8 tok/s counts as waiting for tool approval and gets no speed. The average speed also leaves out turns far below the session's median speed and, when longer ones exist, turns under 100 output tokens.
+- The installer notifies the running Antigravity only when it writes the default `~/.gemini/config`. With `--config-dir` or `AGY_CONFIG_DIR` pointing elsewhere it only writes `config.json`, and the change takes effect after a restart.
 
 ### Fixed
 
-- Installer skips notifying the host Language Server (`JetboxWriteState`) when `--config-dir` or `AGY_CONFIG_DIR` points outside `~/.gemini/config`, so running `npm test` inside Antigravity no longer overwrites the host's `config.json`.
-- Transcript fallback TPS estimation excludes tool-approval stalls (`< 8 tok/s`), prefers substantive turns (`>= 100` output tokens) when computing session and per-model average TPS, and keeps the latest non-interrupted turn's output token count on final response turns.
-
+- Running `npm test` inside Antigravity no longer changes the host's sidecar settings.
+- Without RPC, the Last turn card shows the output tokens of the final reply instead of the turn before it.
 
 ## [0.2.0] - 2026-10-15
 

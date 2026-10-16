@@ -20,6 +20,11 @@ const DEFAULT_PHYSICAL_MAX_CONTEXT = 1048576; // 1M physical window for Gemini 3
 // community measurements put it at about 256k tokens on Gemini 3.8 Flash
 // (https://github.com/google-antigravity/antigravity-cli/issues/878).
 const DEFAULT_COMPACTION_MAX_CONTEXT = 256000;
+// Transcript durations are gaps between step timestamps (1-second resolution, TTFT
+// and any wait for tool approval included), so the TPS estimate filters them:
+const TRANSCRIPT_MIN_TPS = 8; // a slower gap is treated as a wait, not generation
+const TRANSCRIPT_MIN_SAMPLE_TOKENS = 100; // shorter turns are mostly TTFT
+const TRANSCRIPT_STALL_RATIO = 3; // a turn below median / 3 waited on something (with two turns: 5x slower)
 
 export function parseDurationSec(dur) {
   if (!dur) return 0;
@@ -166,7 +171,7 @@ export function parseTranscriptMetrics(transcriptPath) {
       const totalInput = inUncached + inCached;
 
       // Estimate E2E duration only from normal tool-execution step (GENERIC), excluding
-      // ERROR_MESSAGE timeouts and human approval or tool stalls (< 8 tok/s).
+      // ERROR_MESSAGE timeouts and human approval or tool stalls (< TRANSCRIPT_MIN_TPS).
       let estDurationSec = 0;
       const nextStep = steps[i + 1];
       const interrupted = Boolean(nextStep && nextStep.type === 'ERROR_MESSAGE');
@@ -180,7 +185,7 @@ export function parseTranscriptMetrics(transcriptPath) {
         const t0 = Date.parse(s.created_at);
         const t1 = Date.parse(nextStep.created_at);
         const dt = (t1 - t0) / 1000;
-        if (!Number.isNaN(dt) && dt >= 0.05 && dt <= 180 && outTokens / dt >= 8) {
+        if (!Number.isNaN(dt) && dt >= 0.05 && dt <= 180 && outTokens / dt >= TRANSCRIPT_MIN_TPS) {
           estDurationSec = dt;
         }
       }
@@ -225,13 +230,27 @@ export function parseTranscriptMetrics(transcriptPath) {
   return { turns, firstUserPrompt, modelHint: fallbackModel, checkpointCount };
 }
 
-// In transcript mode, step timestamps have 1-second resolution and include TTFT.
-// Prefer turns with >= 100 output tokens when available so tiny tool-call turns
-// do not drag down the time-weighted average; fall back to all valid turns otherwise.
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// Turns that feed the time-weighted average E2E TPS. For transcript turns, prefer
+// substantive ones so tiny tool-call turns do not drag the average down (falling back
+// to all valid turns), then drop turns far below the median rate: a long turn that
+// also waited for approval clears TRANSCRIPT_MIN_TPS, and its wait would dominate
+// a time-weighted mean.
 function selectE2eSampleTurns(turns) {
   const valid = turns.filter((t) => !t.interrupted && t.e2eSec >= 0.05 && t.outTokens > 0);
-  const substantive = valid.filter((t) => t.source !== 'transcript' || t.outTokens >= 100);
-  return substantive.length > 0 ? substantive : valid;
+  const substantive = valid.filter(
+    (t) => t.source !== 'transcript' || t.outTokens >= TRANSCRIPT_MIN_SAMPLE_TOKENS
+  );
+  const sample = substantive.length > 0 ? substantive : valid;
+  const rates = sample.filter((t) => t.source === 'transcript').map((t) => t.e2eTps);
+  if (rates.length < 2) return sample;
+  const floor = median(rates) / TRANSCRIPT_STALL_RATIO;
+  return sample.filter((t) => t.source !== 'transcript' || t.e2eTps >= floor);
 }
 
 export async function getConversationMetrics(requestedConvId, requestedPricing) {
