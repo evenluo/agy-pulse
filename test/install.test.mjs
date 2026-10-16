@@ -169,4 +169,23 @@ describe('Installer CLI (install.mjs)', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('does not notify the host Language Server when --config-dir overrides the default path', async (t) => {
+    const prevAddr = process.env.ANTIGRAVITY_LS_ADDRESS;
+    const prevCsrf = process.env.ANTIGRAVITY_CSRF_TOKEN;
+    process.env.ANTIGRAVITY_LS_ADDRESS = '127.0.0.1:9999';
+    process.env.ANTIGRAVITY_CSRF_TOKEN = 'test-csrf-token';
+    const fetchMock = t.mock.method(globalThis, 'fetch', async () => ({ ok: true }));
+    try {
+      await runCli(['--standalone', '--config-dir', tmpConfigDir, '--quiet']);
+      await runCli(['--plugin', '--config-dir', tmpConfigDir, '--quiet']);
+      await runCli(['--uninstall', '--config-dir', tmpConfigDir, '--quiet']);
+      assert.equal(fetchMock.mock.callCount(), 0);
+    } finally {
+      if (prevAddr === undefined) delete process.env.ANTIGRAVITY_LS_ADDRESS;
+      else process.env.ANTIGRAVITY_LS_ADDRESS = prevAddr;
+      if (prevCsrf === undefined) delete process.env.ANTIGRAVITY_CSRF_TOKEN;
+      else process.env.ANTIGRAVITY_CSRF_TOKEN = prevCsrf;
+    }
+  });
 });

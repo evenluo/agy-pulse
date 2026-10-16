@@ -31,10 +31,12 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const DEFAULT_CONFIG_DIR = join(homedir(), '.gemini', 'config');
+
 function parseArgs(argv) {
   const opts = {
     mode: 'auto', // 'auto' | 'standalone' | 'plugin' | 'status' | 'uninstall'
-    configDir: process.env.AGY_CONFIG_DIR || join(homedir(), '.gemini', 'config'),
+    configDir: process.env.AGY_CONFIG_DIR || DEFAULT_CONFIG_DIR,
     quiet: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -84,10 +86,11 @@ function writeConfigAtomic(configPath, data) {
   renameSync(tmpPath, targetPath);
 }
 
-async function tryNotifyLanguageServer(patch) {
+async function tryNotifyLanguageServer(patch, configDir) {
   const lsAddr = process.env.ANTIGRAVITY_LS_ADDRESS;
   const csrf = process.env.ANTIGRAVITY_CSRF_TOKEN;
   if (!lsAddr || !csrf) return false;
+  if (realPath(configDir) !== realPath(DEFAULT_CONFIG_DIR)) return false;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 1500);
   try {
@@ -204,7 +207,7 @@ Options:
       if (cfg.sidecars[key]) cfg.sidecars[key].enabled = false;
     }
     writeConfigAtomic(configPath, cfg);
-    await tryNotifyLanguageServer({ sidecars: cfg.sidecars });
+    await tryNotifyLanguageServer({ sidecars: cfg.sidecars }, opts.configDir);
 
     if (existsSync(standaloneDir)) {
       rmSync(standaloneDir, { recursive: true, force: true });
@@ -232,7 +235,7 @@ Options:
     cfg.plugins[containingPluginDir] = { ...(cfg.plugins[containingPluginDir] || {}), enabled: true };
     enableOnly(cfg, sidecarKey, keys);
     writeConfigAtomic(configPath, cfg);
-    await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars });
+    await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars }, opts.configDir);
     log(`[context-monitor] Activated plugin sidecar: ${sidecarKey}`);
     return { ok: true, mode: 'in-place-plugin', sidecarId: sidecarKey };
   }
@@ -261,7 +264,7 @@ Options:
     cfg.plugins['context-monitor'] = { ...(cfg.plugins['context-monitor'] || {}), enabled: true };
     enableOnly(cfg, 'context-monitor/context-monitor', keys);
     writeConfigAtomic(configPath, cfg);
-    await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars });
+    await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars }, opts.configDir);
     log(`[context-monitor] Installed plugin bundle to ${pluginInstallDir}`);
     log(`[context-monitor] Enabled sidecar: context-monitor/context-monitor`);
     return {
@@ -278,7 +281,7 @@ Options:
 
   enableOnly(cfg, 'context-monitor', keys);
   writeConfigAtomic(configPath, cfg);
-  await tryNotifyLanguageServer({ sidecars: cfg.sidecars });
+  await tryNotifyLanguageServer({ sidecars: cfg.sidecars }, opts.configDir);
 
   log(`[context-monitor] Installed standalone sidecar to ${standaloneDir}`);
   log(`[context-monitor] Enabled sidecars["context-monitor"] in ${configPath}`);

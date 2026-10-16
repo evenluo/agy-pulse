@@ -229,4 +229,125 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
     assert.equal(metrics.conversationId, '../../outside');
     assert.equal(metrics.summary.turnCount, 0);
   });
+
+  it('filters out approval stalls (<8 tok/s) and micro tool-call turns (<100 tokens) from transcript avgE2eTps while keeping final turn output tokens', async () => {
+    const convDir = join(
+      tmpRoot,
+      'antigravity',
+      'brain',
+      'conv-tps-filter',
+      '.system_generated',
+      'logs'
+    );
+    mkdirSync(convDir, { recursive: true });
+    const tPath = join(convDir, 'transcript.jsonl');
+    const lines = [
+      // Turn 1: substantive turn (600 tokens in 6s = 100 tok/s)
+      JSON.stringify({
+        step_index: 1,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T08:00:00Z',
+        input_tokens: 10000,
+        cache_read_tokens: 40000,
+        output_tokens: 600,
+      }),
+      JSON.stringify({
+        step_index: 2,
+        type: 'GENERIC',
+        created_at: '2026-10-16T08:00:06Z',
+      }),
+      // Turn 2: micro tool-call turn (50 tokens in 5s = 10 tok/s, dominated by TTFT)
+      JSON.stringify({
+        step_index: 3,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T08:00:10Z',
+        input_tokens: 2000,
+        cache_read_tokens: 48000,
+        output_tokens: 50,
+      }),
+      JSON.stringify({
+        step_index: 4,
+        type: 'GENERIC',
+        created_at: '2026-10-16T08:00:15Z',
+      }),
+      // Turn 3: tool call waiting 40s for human approval (120 tokens in 40s = 3 tok/s < 8 tok/s)
+      JSON.stringify({
+        step_index: 5,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T08:00:20Z',
+        input_tokens: 2000,
+        cache_read_tokens: 50000,
+        output_tokens: 120,
+      }),
+      JSON.stringify({
+        step_index: 6,
+        type: 'GENERIC',
+        created_at: '2026-10-16T08:01:00Z',
+      }),
+      // Turn 4: final text response with no trailing GENERIC step (1500 output tokens)
+      JSON.stringify({
+        step_index: 7,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T08:01:05Z',
+        input_tokens: 3000,
+        cache_read_tokens: 52000,
+        output_tokens: 1500,
+      }),
+    ];
+    writeFileSync(tPath, lines.join('\n') + '\n', 'utf-8');
+
+    const metrics = await getConversationMetrics('conv-tps-filter', 'auto');
+    assert.equal(metrics.turns.length, 4);
+    // Turn 3 approval stall has e2eSec = 0 and e2eTps = 0
+    assert.equal(metrics.turns[2].e2eSec, 0);
+    assert.equal(metrics.turns[2].e2eTps, 0);
+    // Session and per-model avgE2eTps use substantive Turn 1 (100 tok/s), ignoring micro Turn 2 (10 tok/s)
+    assert.equal(metrics.summary.avgE2eTps, 100);
+    assert.equal(metrics.modelStats[0].avgE2eTps, 100);
+    // Final turn output tokens are preserved in summary.lastOutTokens
+    assert.equal(metrics.summary.lastOutTokens, 1500);
+    // The final turn has no duration, so the last measured speed is Turn 2's
+    assert.equal(metrics.summary.lastE2eTps, 10);
+  });
+
+  it('drops a long turn that also waited for approval from transcript avgE2eTps', async () => {
+    const convDir = join(
+      tmpRoot,
+      'antigravity',
+      'brain',
+      'conv-tps-long-wait',
+      '.system_generated',
+      'logs'
+    );
+    mkdirSync(convDir, { recursive: true });
+    const planner = (step, at, out) =>
+      JSON.stringify({
+        step_index: step,
+        type: 'PLANNER_RESPONSE',
+        created_at: at,
+        input_tokens: 2000,
+        cache_read_tokens: 40000,
+        output_tokens: out,
+      });
+    const generic = (step, at) => JSON.stringify({ step_index: step, type: 'GENERIC', created_at: at });
+    const lines = [
+      // 600 tokens in 6s = 100 tok/s
+      planner(1, '2026-10-16T09:00:00Z', 600),
+      generic(2, '2026-10-16T09:00:06Z'),
+      // 800 tokens in 10s = 80 tok/s
+      planner(3, '2026-10-16T09:00:10Z', 800),
+      generic(4, '2026-10-16T09:00:20Z'),
+      // 1500 tokens, then about 150s waiting for approval: 165s gap = 9.1 tok/s, above the 8 tok/s floor
+      planner(5, '2026-10-16T09:00:25Z', 1500),
+      generic(6, '2026-10-16T09:03:10Z'),
+    ];
+    writeFileSync(join(convDir, 'transcript.jsonl'), lines.join('\n') + '\n', 'utf-8');
+
+    const metrics = await getConversationMetrics('conv-tps-long-wait', 'auto');
+    assert.equal(metrics.turns[2].e2eSec, 165);
+    // Time-weighted over all three turns would be 2900 / 181 = 16 tok/s
+    assert.equal(metrics.summary.avgE2eTps, 1400 / 16);
+    assert.equal(metrics.modelStats[0].avgE2eTps, 1400 / 16);
+  });
 });
+

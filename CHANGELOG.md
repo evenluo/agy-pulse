@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- The Speed card headlines the session's average speed instead of the last turn's, so short tool-call turns no longer make it jump around. The footer shows the speed of the last turn with a measured duration next to the peak.
+- Without RPC, a turn slower than 8 tok/s counts as waiting for tool approval and gets no speed. The average speed also leaves out turns far below the session's median speed and, when longer ones exist, turns under 100 output tokens.
+- The installer notifies the running Antigravity only when it writes the default `~/.gemini/config`. With `--config-dir` or `AGY_CONFIG_DIR` pointing elsewhere it only writes `config.json`, and the change takes effect after a restart.
+
+### Fixed
+
+- Running `npm test` inside Antigravity no longer changes the host's sidecar settings.
+- Without RPC, the Last turn card shows the output tokens of the final reply instead of the turn before it.
+
 ## [0.2.0] - 2026-10-15
 
 First release under the name agy-pulse. Upgrading from 0.1.0:
