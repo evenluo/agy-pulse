@@ -165,7 +165,8 @@ export function parseTranscriptMetrics(transcriptPath) {
       const outTokens = Number(s.output_tokens || 0);
       const totalInput = inUncached + inCached;
 
-      // Estimate E2E duration only from normal tool-execution step (GENERIC), excluding ERROR_MESSAGE timeouts
+      // Estimate E2E duration only from normal tool-execution step (GENERIC), excluding
+      // ERROR_MESSAGE timeouts and human approval or tool stalls (< 8 tok/s).
       let estDurationSec = 0;
       const nextStep = steps[i + 1];
       const interrupted = Boolean(nextStep && nextStep.type === 'ERROR_MESSAGE');
@@ -179,7 +180,7 @@ export function parseTranscriptMetrics(transcriptPath) {
         const t0 = Date.parse(s.created_at);
         const t1 = Date.parse(nextStep.created_at);
         const dt = (t1 - t0) / 1000;
-        if (!Number.isNaN(dt) && dt >= 0.05 && dt <= 180) {
+        if (!Number.isNaN(dt) && dt >= 0.05 && dt <= 180 && outTokens / dt >= 8) {
           estDurationSec = dt;
         }
       }
@@ -222,6 +223,15 @@ export function parseTranscriptMetrics(transcriptPath) {
   }
 
   return { turns, firstUserPrompt, modelHint: fallbackModel, checkpointCount };
+}
+
+// In transcript mode, step timestamps have 1-second resolution and include TTFT.
+// Prefer turns with >= 100 output tokens when available so tiny tool-call turns
+// do not drag down the time-weighted average; fall back to all valid turns otherwise.
+function selectE2eSampleTurns(turns) {
+  const valid = turns.filter((t) => !t.interrupted && t.e2eSec >= 0.05 && t.outTokens > 0);
+  const substantive = valid.filter((t) => t.source !== 'transcript' || t.outTokens >= 100);
+  return substantive.length > 0 ? substantive : valid;
 }
 
 export async function getConversationMetrics(requestedConvId, requestedPricing) {
@@ -363,10 +373,11 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
 
   const lastTurn = turns[turns.length - 1] || null;
   const lastCtxTurn = [...turns].reverse().find((t) => t.contextUsed > 0) || lastTurn;
+  const lastOutTurn =
+    [...turns].reverse().find((t) => !t.interrupted && t.outTokens > 0) || lastTurn;
   const lastPerfTurn =
     [...turns].reverse().find((t) => !t.interrupted && (t.e2eTps > 0 || t.decodeTps > 0)) ||
-    [...turns].reverse().find((t) => !t.interrupted && t.outTokens > 0) ||
-    lastTurn;
+    lastOutTurn;
   const totalOutTokens = turns.reduce((acc, t) => acc + t.outTokens, 0);
   const totalThinkTokens = turns.reduce((acc, t) => acc + t.thinkTokens, 0);
   const totalRespTokens = turns.reduce((acc, t) => acc + t.respTokens, 0);
@@ -422,8 +433,7 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
         costUsd: 0,
         noCacheTotalCostUsd: 0,
         savedByCacheUsd: 0,
-        _e2eOutSum: 0,
-        _e2eSecSum: 0,
+        _turns: [],
         _decOutSum: 0,
         _decSecSum: 0,
         _ttftSum: 0,
@@ -450,10 +460,7 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
     g.costUsd += t.costUsd || 0;
     g.noCacheTotalCostUsd += t.noCacheTotalCostUsd || 0;
     g.savedByCacheUsd += t.savedByCacheUsd || 0;
-    if (!t.interrupted && t.e2eSec >= 0.05 && t.outTokens > 0) {
-      g._e2eOutSum += t.outTokens;
-      g._e2eSecSum += t.e2eSec;
-    }
+    g._turns.push(t);
     if (!t.interrupted && t.streamSec >= 0.15 && t.outTokens > 0) {
       g._decOutSum += t.outTokens;
       g._decSecSum += t.streamSec;
@@ -472,7 +479,10 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
       const costSharePct = totalCostUsd > 0 ? (g.costUsd / totalCostUsd) * 100 : 0;
       const savedByCachePctModel =
         g.noCacheTotalCostUsd > 0 ? (g.savedByCacheUsd / g.noCacheTotalCostUsd) * 100 : 0;
-      const avgE2eTpsModel = g._e2eSecSum > 0 ? g._e2eOutSum / g._e2eSecSum : 0;
+      const modelE2eTurns = selectE2eSampleTurns(g._turns);
+      const e2eOutSum = modelE2eTurns.reduce((a, t) => a + t.outTokens, 0);
+      const e2eSecSum = modelE2eTurns.reduce((a, t) => a + t.e2eSec, 0);
+      const avgE2eTpsModel = e2eSecSum > 0 ? e2eOutSum / e2eSecSum : 0;
       const avgDecodeTpsModel = g._decSecSum > 0 ? g._decOutSum / g._decSecSum : 0;
       const avgTtftSecModel = g._ttftCount > 0 ? g._ttftSum / g._ttftCount : 0;
       return {
@@ -513,7 +523,7 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
 
   // Time-weighted session TPS (total tokens / total active seconds) to prevent short-turn ratio skew
   const validDecodeTurns = turns.filter((t) => !t.interrupted && t.streamSec >= 0.15 && t.outTokens > 0);
-  const validE2eTurns = turns.filter((t) => !t.interrupted && t.e2eSec >= 0.05 && t.outTokens > 0);
+  const validE2eTurns = selectE2eSampleTurns(turns);
   const ttftTurns = turns.filter((t) => !t.interrupted && t.ttftSec > 0);
 
   const sumDecodeOut = validDecodeTurns.reduce((a, t) => a + t.outTokens, 0);
@@ -571,13 +581,13 @@ export async function getConversationMetrics(requestedConvId, requestedPricing) 
       peakE2eTps,
       peakDecodeTps,
       peakTps,
-      lastTtftSec: lastPerfTurn?.ttftSec || 0,
-      lastStreamSec: lastPerfTurn?.streamSec || 0,
-      lastE2eSec: lastPerfTurn?.e2eSec || 0,
+      lastTtftSec: lastOutTurn?.ttftSec || 0,
+      lastStreamSec: lastOutTurn?.streamSec || 0,
+      lastE2eSec: lastOutTurn?.e2eSec || 0,
       avgTtftSec,
-      lastOutTokens: lastPerfTurn?.outTokens || 0,
-      lastThinkTokens: lastPerfTurn?.thinkTokens || 0,
-      lastRespTokens: lastPerfTurn?.respTokens || 0,
+      lastOutTokens: lastOutTurn?.outTokens || 0,
+      lastThinkTokens: lastOutTurn?.thinkTokens || 0,
+      lastRespTokens: lastOutTurn?.respTokens || 0,
       totalInUncached,
       totalInCached,
       totalCacheWriteTokens,

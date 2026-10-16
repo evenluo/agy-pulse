@@ -4,9 +4,15 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- The Speed card now headlines the session time-weighted average TPS (`avgE2eTps` / `avgDecodeTps`) and moves the latest single-turn TPS to the card footer alongside peak TPS, preventing short tool-call steps from making the headline speed jump around.
+
 ### Fixed
 
 - Installer skips notifying the host Language Server (`JetboxWriteState`) when `--config-dir` or `AGY_CONFIG_DIR` points outside `~/.gemini/config`, so running `npm test` inside Antigravity no longer overwrites the host's `config.json`.
+- Transcript fallback TPS estimation excludes tool-approval stalls (`< 8 tok/s`), prefers substantive turns (`>= 100` output tokens) when computing session and per-model average TPS, and keeps the latest non-interrupted turn's output token count on final response turns.
+
 
 ## [0.2.0] - 2026-10-15
 
