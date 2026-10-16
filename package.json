@@ -1,6 +1,6 @@
 {
   "name": "agy-pulse",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Context window, prompt cache, cost, and TTFT/TPS panel for Google Antigravity, running as a native zero-dependency sidecar.",
   "type": "module",
   "bin": {
