@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   PRICING_PROFILES,
@@ -14,6 +16,11 @@ import {
   parseTranscriptMetrics,
   getConversationMetrics,
 } from '../sidecars/context-monitor/metrics.mjs';
+import {
+  formatStatusLine,
+  resolveGitBranch,
+  splitModelAndEffort,
+} from '../sidecars/context-monitor/statusline.mjs';
 
 describe('Pricing & Cost Engine', () => {
   it('resolves model names to accurate pricing profiles in auto mode', () => {
@@ -351,3 +358,193 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
   });
 });
 
+describe('CLI StatusLine Renderer (statusline.mjs)', () => {
+  const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
+
+  it('splits model name and thinking effort cleanly', () => {
+    assert.deepEqual(splitModelAndEffort('models/Gemini 3.1 Pro (High)'), {
+      model: 'Gemini 3.1 Pro',
+      effort: 'High',
+    });
+    assert.deepEqual(splitModelAndEffort('Gemini 4 Argon', 'max'), {
+      model: 'Gemini 4 Argon',
+      effort: 'max',
+    });
+  });
+
+  it('resolves git branch from vcs payload, .git directory, and worktree .git file', () => {
+    assert.deepEqual(resolveGitBranch({ vcs: { branch: 'feat/pulse', dirty: true } }), {
+      branch: 'feat/pulse',
+      dirty: true,
+    });
+
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-git-test-'));
+    try {
+      const repoDir = join(tmp, 'repo');
+      const subDir = join(repoDir, 'packages', 'ui');
+      mkdirSync(join(repoDir, '.git'), { recursive: true });
+      mkdirSync(subDir, { recursive: true });
+      writeFileSync(join(repoDir, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      assert.deepEqual(resolveGitBranch({ workspace: { current_dir: subDir } }), {
+        branch: 'main',
+        dirty: false,
+      });
+
+      const wtDir = join(tmp, 'worktree');
+      const gitDir = join(tmp, 'actual-gitdir');
+      mkdirSync(wtDir, { recursive: true });
+      mkdirSync(gitDir, { recursive: true });
+      writeFileSync(join(wtDir, '.git'), 'gitdir: ../actual-gitdir\n');
+      writeFileSync(join(gitDir, 'HEAD'), 'ref: refs/heads/wt-branch\n');
+      assert.deepEqual(resolveGitBranch({ cwd: wtDir }), {
+        branch: 'wt-branch',
+        dirty: false,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('renders model, effort, branch, turns + compact count, context, cache, cost, and filtered avg TPS', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-statusline-test-'));
+    try {
+      const tPath = join(tmp, 'transcript.jsonl');
+      const lines = [
+        JSON.stringify({ step_index: 0, type: 'CHECKPOINT', created_at: '2026-10-16T08:00:00Z' }),
+        JSON.stringify({
+          step_index: 1,
+          type: 'PLANNER_RESPONSE',
+          created_at: '2026-10-16T08:00:01Z',
+          input_tokens: 20000,
+          cache_read_tokens: 80000,
+          output_tokens: 500,
+        }),
+        JSON.stringify({ step_index: 2, type: 'GENERIC', created_at: '2026-10-16T08:00:06Z' }),
+      ];
+      writeFileSync(tPath, lines.join('\n') + '\n');
+
+      const out = await formatStatusLine({
+        conversation_id: 'conv-statusline-1',
+        transcript_path: pathToFileURL(tPath).href,
+        model: { display_name: 'Gemini 4 Argon', effort: 'high' },
+        vcs: { branch: 'feat/statusline', dirty: true },
+        context_window: {
+          current_usage: { input_tokens: 20000, cache_read_input_tokens: 80000, output_tokens: 500 },
+          context_window_size: 1048576,
+        },
+      });
+      const plain = stripAnsi(out);
+      assert.match(plain, /^Gemini 4 Argon \[high\] │ ⎇ feat\/statusline\* │ Turns: 1 \(Compact: 1\)/);
+      assert.match(plain, /Ctx: 100\.0k\/1\.05M \(9\.5%\)/);
+      assert.match(plain, /Cache: 80\.0% \(80\.0k\)/);
+      assert.match(plain, /ΣTok: 100\.5k \(\$0\.053\)/);
+      assert.match(plain, /Avg: ~100 tok\/s$/);
+      assert.doesNotMatch(plain, /\bOut:/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('does not leak another conversation transcript when conversation_id is missing and avoids cross-model effort mismatch', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-statusline-settings-'));
+    try {
+      const settingsPath = join(tmp, 'settings.json');
+      writeFileSync(settingsPath, JSON.stringify({ model: 'Gemini 3.1 Pro (High)' }));
+
+      const out = await formatStatusLine(
+        {
+          model: { display_name: 'Claude Sonnet 4.6' },
+          vcs: { branch: 'main', dirty: false },
+          context_window: {
+            current_usage: { input_tokens: 10000, cache_read_input_tokens: 30000, output_tokens: 1000 },
+            context_window_size: 1048576,
+          },
+        },
+        { settingsPath }
+      );
+      const plain = stripAnsi(out);
+      // Should NOT attach [High] from Gemini 3.1 Pro onto Claude Sonnet 4.6
+      assert.match(plain, /^Claude Sonnet 4\.6 │ ⎇ main │ Turns: 0 \(Compact: 0\)/);
+      // Without a transcript there is no session total to show.
+      assert.doesNotMatch(plain, /ΣTok/);
+      assert.match(plain, /Cache: 75\.0% \(30\.0k\) │ Avg: -- tok\/s$/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+  it('pairs the host used_percentage with total_input + total_output and counts cache writes', async () => {
+    // Payload from https://antigravity.google/docs/cli/statusline
+    const out = await formatStatusLine({
+      model: { display_name: 'Gemini 3.1 Pro' },
+      context_window: {
+        total_input_tokens: 88244,
+        total_output_tokens: 61074,
+        context_window_size: 1048576,
+        used_percentage: 14.24,
+        current_usage: {
+          input_tokens: 63382,
+          output_tokens: 346,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 20857,
+        },
+      },
+    });
+    assert.match(stripAnsi(out), /Ctx: 149\.3k\/1\.05M \(14\.2%\)/);
+    assert.match(stripAnsi(out), /Cache: 24\.8% \(20\.9k\)/);
+
+    for (const used_percentage of [0, 'n/a']) {
+      const recomputed = await formatStatusLine({
+        context_window: { total_input_tokens: 104858, context_window_size: 1048576, used_percentage },
+      });
+      assert.match(stripAnsi(recomputed), /Ctx: 104\.9k\/1\.05M \(10\.0%\) \[█░░░░░░░\]/);
+    }
+
+    const withWrites = await formatStatusLine({
+      model: { display_name: 'Claude Opus 4.7' },
+      context_window: {
+        context_window_size: 1000000,
+        current_usage: {
+          input_tokens: 10000,
+          cache_creation_input_tokens: 30000,
+          cache_read_input_tokens: 60000,
+        },
+      },
+    });
+    assert.match(stripAnsi(withWrites), /Ctx: 100\.0k\/1\.00M \(10\.0%\)/);
+    assert.match(stripAnsi(withWrites), /Cache: 60\.0% \(60\.0k\)/);
+  });
+
+  it('renders without waiting for EOF when the CLI keeps stdin open', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-statusline-stdin-'));
+    const script = fileURLToPath(new URL('../sidecars/context-monitor/statusline.mjs', import.meta.url));
+    const run = (payload) =>
+      new Promise((resolveRun, rejectRun) => {
+        const child = spawn(process.execPath, [script], {
+          cwd: tmp,
+          env: { PATH: process.env.PATH, AGY_GEMINI_ROOT: tmp, AGY_CLI_SETTINGS_PATH: join(tmp, 's.json') },
+        });
+        let stdout = '';
+        child.stdout.on('data', (c) => (stdout += c));
+        const killer = setTimeout(() => {
+          child.kill();
+          rejectRun(new Error('statusline.mjs did not exit'));
+        }, 4000);
+        child.on('exit', (code) => {
+          clearTimeout(killer);
+          resolveRun({ code, stdout });
+        });
+        if (payload) child.stdin.write(payload); // never end()
+      });
+    try {
+      const rendered = await run(JSON.stringify({ model: { display_name: 'Gemini 3.1 Pro' } }));
+      assert.equal(rendered.code, 0);
+      assert.match(stripAnsi(rendered.stdout), /^Gemini 3\.1 Pro │ Turns: 0/);
+
+      const silent = await run('');
+      assert.equal(silent.code, 0);
+      assert.equal(silent.stdout, '');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});

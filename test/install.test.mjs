@@ -51,9 +51,17 @@ describe('Installer CLI (install.mjs)', () => {
     }
   });
 
-  it('copies the whole sidecar directory, including the UI files', async () => {
+  it('copies the whole sidecar directory, including the UI files and statusline.mjs', async () => {
     const dir = join(tmpConfigDir, 'sidecars', 'context-monitor');
-    for (const f of ['sidecar.json', 'server.mjs', 'metrics.mjs', 'pricing.mjs', 'ui/index.html', 'ui/preload.js']) {
+    for (const f of [
+      'sidecar.json',
+      'server.mjs',
+      'metrics.mjs',
+      'pricing.mjs',
+      'statusline.mjs',
+      'ui/index.html',
+      'ui/preload.js',
+    ]) {
       assert.ok(existsSync(join(dir, f)), `missing ${f}`);
     }
   });
@@ -74,6 +82,105 @@ describe('Installer CLI (install.mjs)', () => {
 
     const un = await runCli(['--uninstall', '--config-dir', tmpConfigDir, '--quiet']);
     assert.equal(un.ok, true);
+  });
+
+  it('configures and cleans up CLI statusLine in settings.json while preserving existing keys', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agy-cli-settings-'));
+    try {
+      const cliSettingsPath = join(dir, 'antigravity-cli', 'settings.json');
+      mkdirSync(dirname(cliSettingsPath), { recursive: true });
+      writeFileSync(
+        cliSettingsPath,
+        JSON.stringify({ model: 'Gemini 3.1 Pro (High)', vimMode: true }, null, 2)
+      );
+
+      await runCli([
+        '--standalone',
+        '--config-dir',
+        dir,
+        '--cli-settings',
+        cliSettingsPath,
+        '--quiet',
+      ]);
+      let cliCfg = JSON.parse(readFileSync(cliSettingsPath, 'utf-8'));
+      assert.equal(cliCfg.model, 'Gemini 3.1 Pro (High)');
+      assert.equal(cliCfg.vimMode, true);
+      assert.equal(cliCfg.statusLine.type, 'command');
+      assert.equal(cliCfg.statusLine.enabled, true);
+      assert.equal(cliCfg.statusLine.stack_with_default, true);
+      assert.match(cliCfg.statusLine.command, /sidecars[\\/]context-monitor[\\/]statusline\.mjs/);
+
+      const st = await runCli([
+        '--status',
+        '--config-dir',
+        dir,
+        '--cli-settings',
+        cliSettingsPath,
+        '--quiet',
+      ]);
+      assert.equal(st.status.statusLineEnabled, true);
+
+      await runCli([
+        '--uninstall',
+        '--config-dir',
+        dir,
+        '--cli-settings',
+        cliSettingsPath,
+        '--quiet',
+      ]);
+      cliCfg = JSON.parse(readFileSync(cliSettingsPath, 'utf-8'));
+      assert.equal(cliCfg.model, 'Gemini 3.1 Pro (High)');
+      assert.equal(cliCfg.statusLine, undefined);
+
+      // A custom statusLine survives both install and uninstall.
+      const custom = JSON.stringify({
+        model: 'Gemini 3.1 Pro (High)',
+        statusLine: { type: 'command', command: 'echo custom', enabled: true },
+      });
+      writeFileSync(cliSettingsPath, custom);
+      for (const mode of ['--standalone', '--uninstall']) {
+        await runCli([mode, '--config-dir', dir, '--cli-settings', cliSettingsPath, '--quiet']);
+        assert.equal(readFileSync(cliSettingsPath, 'utf-8'), custom, `${mode} changed settings.json`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves the CLI settings alone by default when the Antigravity CLI is not installed', () => {
+    const home = mkdtempSync(join(tmpdir(), 'agy-home-'));
+    try {
+      const installer = fileURLToPath(new URL('../install.mjs', import.meta.url));
+      execFileSync(process.execPath, [installer, '--standalone', '--quiet'], {
+        env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home },
+      });
+      assert.ok(existsSync(join(home, '.gemini', 'config', 'sidecars', 'context-monitor', 'statusline.mjs')));
+      assert.equal(existsSync(join(home, '.gemini', 'antigravity-cli')), false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('aborts without touching config.json or settings.json when settings.json is not valid JSON', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agy-cli-bad-'));
+    try {
+      const cfgPath = join(dir, 'config.json');
+      const cliSettingsPath = join(dir, 'settings.json');
+      writeFileSync(cfgPath, JSON.stringify({ userSettings: { theme: 'dark' } }));
+      writeFileSync(cliSettingsPath, '{ "model": "Gemini", ');
+      const beforeCfg = readFileSync(cfgPath, 'utf-8');
+      const beforeCli = readFileSync(cliSettingsPath, 'utf-8');
+
+      await assert.rejects(
+        runCli(['--standalone', '--config-dir', dir, '--cli-settings', cliSettingsPath, '--quiet']),
+        /not a valid JSON object/
+      );
+      assert.equal(readFileSync(cfgPath, 'utf-8'), beforeCfg);
+      assert.equal(readFileSync(cliSettingsPath, 'utf-8'), beforeCli);
+      assert.equal(existsSync(join(dir, 'sidecars')), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('aborts without touching config.json when it is not valid JSON', async () => {

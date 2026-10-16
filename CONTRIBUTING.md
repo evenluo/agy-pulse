@@ -20,6 +20,7 @@ sidecars/context-monitor/
   server.mjs                         HTTP entrypoint: serves ui/ and /api/metrics
   metrics.mjs                        Reads transcripts and LS RPC, aggregates per turn/model/session
   pricing.mjs                        Price table and per-turn cost
+  statusline.mjs                     Antigravity CLI statusLine renderer
   ui/index.html                      The panel (HTML, CSS, JS in one file)
   ui/preload.js                      Applies host theme variables
 test/                                node:test suites and the demo fixture

@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
- * agy-pulse installer: deploys the Context & TPS sidecar and toggles it in
- * ~/.gemini/config/config.json. Zero dependencies.
+ * agy-pulse installer: deploys the Context & TPS sidecar + CLI statusLine and
+ * toggles them in ~/.gemini/config/config.json and ~/.gemini/antigravity-cli/settings.json.
+ * Zero dependencies.
  *
  * Supports:
- *   node install.mjs                 # Install/update standalone sidecar (or activate plugin if run inside plugins/<dir>)
- *   node install.mjs --standalone    # Install standalone global sidecar at ~/.gemini/config/sidecars/context-monitor
- *   node install.mjs --plugin        # Install full plugin bundle at ~/.gemini/config/plugins/context-monitor
- *   node install.mjs --status        # Show current installation & config.json enablement status
- *   node install.mjs --uninstall     # Disable sidecar entries and remove installed files
- *   node install.mjs --config-dir X  # Override ~/.gemini/config path (used for testing)
+ *   node install.mjs                   # Install/update standalone sidecar + CLI statusLine (or activate plugin in-place)
+ *   node install.mjs --standalone      # Install standalone global sidecar at ~/.gemini/config/sidecars/context-monitor
+ *   node install.mjs --plugin          # Install full plugin bundle at ~/.gemini/config/plugins/context-monitor
+ *   node install.mjs --status          # Show current installation, config.json, and CLI statusLine status
+ *   node install.mjs --uninstall       # Disable sidecar + CLI statusLine entries and remove installed files
+ *   node install.mjs --config-dir X    # Override ~/.gemini/config path (used for testing)
+ *   node install.mjs --cli-settings X  # Override ~/.gemini/antigravity-cli/settings.json path
  */
 
 import {
@@ -31,12 +33,18 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const DEFAULT_CONFIG_DIR = join(homedir(), '.gemini', 'config');
+const DEFAULT_GEMINI_ROOT = join(homedir(), '.gemini');
+const DEFAULT_CONFIG_DIR = join(DEFAULT_GEMINI_ROOT, 'config');
+const DEFAULT_CLI_SETTINGS_PATH = join(DEFAULT_GEMINI_ROOT, 'antigravity-cli', 'settings.json');
 
 function parseArgs(argv) {
+  let configDirOverridden = Boolean(process.env.AGY_CONFIG_DIR);
   const opts = {
     mode: 'auto', // 'auto' | 'standalone' | 'plugin' | 'status' | 'uninstall'
     configDir: process.env.AGY_CONFIG_DIR || DEFAULT_CONFIG_DIR,
+    cliSettingsPath: process.env.AGY_CLI_SETTINGS_PATH
+      ? resolve(process.env.AGY_CLI_SETTINGS_PATH)
+      : null,
     quiet: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -49,11 +57,19 @@ function parseArgs(argv) {
     else if (a === '--config-dir') {
       if (!argv[i + 1]) throw new Error('--config-dir requires a path.');
       opts.configDir = resolve(argv[++i]);
+      configDirOverridden = true;
+    } else if (a === '--cli-settings') {
+      if (!argv[i + 1]) throw new Error('--cli-settings requires a path.');
+      opts.cliSettingsPath = resolve(argv[++i]);
     } else if (a === '--help' || a === '-h') {
       opts.mode = 'help';
     } else {
       throw new Error(`Unknown option: ${a}. Run with --help for usage.`);
     }
+  }
+  // By default, touch the CLI settings only when the Antigravity CLI is installed.
+  if (!opts.cliSettingsPath && !configDirOverridden && existsSync(dirname(DEFAULT_CLI_SETTINGS_PATH))) {
+    opts.cliSettingsPath = DEFAULT_CLI_SETTINGS_PATH;
   }
   return opts;
 }
@@ -154,6 +170,36 @@ function enableOnly(cfg, key, keys) {
   cfg.sidecars[key] = { ...(cfg.sidecars[key] || {}), enabled: true };
 }
 
+function formatStatusLineCommand(scriptPath) {
+  return /\s/.test(scriptPath) ? `node "${scriptPath}"` : `node ${scriptPath}`;
+}
+
+function isManagedStatusLine(statusLine) {
+  if (!statusLine || typeof statusLine !== 'object' || Array.isArray(statusLine)) return false;
+  return /sidecars[\\/]context-monitor[\\/]statusline\.mjs/.test(String(statusLine.command || ''));
+}
+
+// Point statusLine at our renderer, unless the user already has their own.
+function configureStatusLine(cliSettingsPath, cliCfg, scriptPath, log) {
+  if (!cliCfg) return;
+  const command = formatStatusLineCommand(scriptPath);
+  const prev = cliCfg.statusLine;
+  if (prev != null && !isManagedStatusLine(prev)) {
+    log(`[context-monitor] Kept your existing statusLine in ${cliSettingsPath}.`);
+    log(`[context-monitor] To use agy-pulse's instead, set statusLine.command to: ${command}`);
+    return;
+  }
+  cliCfg.statusLine = {
+    ...(prev || {}),
+    type: 'command',
+    command,
+    enabled: true,
+    stack_with_default:
+      typeof prev?.stack_with_default === 'boolean' ? prev.stack_with_default : true,
+  };
+  writeConfigAtomic(cliSettingsPath, cliCfg);
+}
+
 export async function runCli(argv = process.argv.slice(2)) {
   const opts = parseArgs(argv);
   const log = (...args) => {
@@ -164,11 +210,12 @@ export async function runCli(argv = process.argv.slice(2)) {
     log(`Usage: node install.mjs [options]
 
 Options:
-  --standalone       Install standalone sidecar to ~/.gemini/config/sidecars/context-monitor (default)
-  --plugin           Install full plugin bundle to ~/.gemini/config/plugins/context-monitor
-  --status           Inspect current installation and config.json state
-  --uninstall        Disable sidecar and remove installed files
-  --config-dir <p>   Override target ~/.gemini/config directory
+  --standalone        Install standalone sidecar to ~/.gemini/config/sidecars/context-monitor (default)
+  --plugin            Install full plugin bundle to ~/.gemini/config/plugins/context-monitor
+  --status            Inspect current installation, config.json, and CLI statusLine state
+  --uninstall         Disable sidecar + CLI statusLine and remove installed files
+  --config-dir <p>    Override target ~/.gemini/config directory
+  --cli-settings <p>  Override target ~/.gemini/antigravity-cli/settings.json file
 `);
     return { ok: true, mode: 'help' };
   }
@@ -181,6 +228,7 @@ Options:
 
   if (opts.mode === 'status') {
     const cfg = readConfig(configPath);
+    const cliCfg = opts.cliSettingsPath ? readConfig(opts.cliSettingsPath) : null;
     const standaloneFiles = existsSync(join(standaloneDir, 'server.mjs'));
     const pluginFiles = keys
       .filter((k) => k !== 'context-monitor')
@@ -189,12 +237,17 @@ Options:
     const pluginSidecarEnabled = keys
       .filter((k) => k !== 'context-monitor')
       .some((k) => Boolean(cfg?.sidecars?.[k]?.enabled));
+    const statusLineEnabled = Boolean(
+      cliCfg?.statusLine?.enabled && isManagedStatusLine(cliCfg.statusLine)
+    );
     const status = {
       configPath,
+      ...(opts.cliSettingsPath ? { cliSettingsPath: opts.cliSettingsPath } : {}),
       standaloneInstalled: standaloneFiles,
       standaloneEnabled,
       pluginInstalled: pluginFiles,
       pluginSidecarEnabled,
+      statusLineEnabled,
     };
     log('[context-monitor] Status:', JSON.stringify(status, null, 2));
     return { ok: true, mode: 'status', status };
@@ -202,11 +255,19 @@ Options:
 
   if (opts.mode === 'uninstall') {
     const cfg = readConfig(configPath);
+    const cliCfg =
+      opts.cliSettingsPath && existsSync(opts.cliSettingsPath)
+        ? readConfig(opts.cliSettingsPath)
+        : null;
     cfg.sidecars = cfg.sidecars || {};
     for (const key of keys) {
       if (cfg.sidecars[key]) cfg.sidecars[key].enabled = false;
     }
     writeConfigAtomic(configPath, cfg);
+    if (cliCfg && isManagedStatusLine(cliCfg.statusLine)) {
+      delete cliCfg.statusLine;
+      writeConfigAtomic(opts.cliSettingsPath, cliCfg);
+    }
     await tryNotifyLanguageServer({ sidecars: cfg.sidecars }, opts.configDir);
 
     if (existsSync(standaloneDir)) {
@@ -227,6 +288,7 @@ Options:
 
   const srcSidecarDir = join(__dirname, 'sidecars', 'context-monitor');
   const cfg = readConfig(configPath);
+  const cliCfg = opts.cliSettingsPath ? readConfig(opts.cliSettingsPath) : null;
   cfg.sidecars = cfg.sidecars || {};
   cfg.plugins = cfg.plugins || {};
 
@@ -235,6 +297,7 @@ Options:
     cfg.plugins[containingPluginDir] = { ...(cfg.plugins[containingPluginDir] || {}), enabled: true };
     enableOnly(cfg, sidecarKey, keys);
     writeConfigAtomic(configPath, cfg);
+    configureStatusLine(opts.cliSettingsPath, cliCfg, join(srcSidecarDir, 'statusline.mjs'), log);
     await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars }, opts.configDir);
     log(`[context-monitor] Activated plugin sidecar: ${sidecarKey}`);
     return { ok: true, mode: 'in-place-plugin', sidecarId: sidecarKey };
@@ -264,6 +327,12 @@ Options:
     cfg.plugins['context-monitor'] = { ...(cfg.plugins['context-monitor'] || {}), enabled: true };
     enableOnly(cfg, 'context-monitor/context-monitor', keys);
     writeConfigAtomic(configPath, cfg);
+    configureStatusLine(
+      opts.cliSettingsPath,
+      cliCfg,
+      join(pluginInstallDir, 'sidecars', 'context-monitor', 'statusline.mjs'),
+      log
+    );
     await tryNotifyLanguageServer({ plugins: cfg.plugins, sidecars: cfg.sidecars }, opts.configDir);
     log(`[context-monitor] Installed plugin bundle to ${pluginInstallDir}`);
     log(`[context-monitor] Enabled sidecar: context-monitor/context-monitor`);
@@ -281,6 +350,7 @@ Options:
 
   enableOnly(cfg, 'context-monitor', keys);
   writeConfigAtomic(configPath, cfg);
+  configureStatusLine(opts.cliSettingsPath, cliCfg, join(standaloneDir, 'statusline.mjs'), log);
   await tryNotifyLanguageServer({ sidecars: cfg.sidecars }, opts.configDir);
 
   log(`[context-monitor] Installed standalone sidecar to ${standaloneDir}`);

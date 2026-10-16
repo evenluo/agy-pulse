@@ -32,21 +32,21 @@ git clone https://github.com/evenluo/agy-pulse.git
 node agy-pulse/install.mjs
 ```
 
-安装脚本把 Sidecar 复制到 `~/.gemini/config/sidecars/context-monitor/`，并在 `~/.gemini/config/config.json` 中设置 `sidecars["context-monitor"].enabled = true`。该文件中的其他设置保持不变。如果该文件不是合法 JSON，安装脚本停止运行，不修改任何文件。
+安装脚本把 Sidecar 复制到 `~/.gemini/config/sidecars/context-monitor/`，在 `~/.gemini/config/config.json` 中设置 `sidecars["context-monitor"].enabled = true`，并在已安装 Antigravity CLI 时把 `~/.gemini/antigravity-cli/settings.json` 中的 `statusLine` 指向 `statusline.mjs`（显示模型与推理强度、Git 分支、轮次与压缩次数、Context 进度条、Prompt Cache 命中率、会话累计 Token/费用及会话平均 TPS）。你自己配置的 `statusLine` 会保留。这两个文件中的其他设置保持不变。如果任一文件不是合法 JSON，安装脚本停止运行，不修改任何文件。
 
 其他安装方式：
 
 | 方式 | 命令 | 结果 |
 | :--- | :--- | :--- |
 | 插件包（Sidecar + Agent Skill） | `node agy-pulse/install.mjs --plugin` | 把仓库复制到 `~/.gemini/config/plugins/context-monitor/` 并启用。 |
-| Antigravity CLI | `agy plugin install https://github.com/evenluo/agy-pulse`，然后运行 `node ~/.gemini/config/plugins/<插件目录>/install.mjs` | 第二条命令启用已安装插件中的 Sidecar。 |
+| Antigravity CLI | `agy plugin install https://github.com/evenluo/agy-pulse`，然后运行 `node ~/.gemini/config/plugins/<插件目录>/install.mjs` | 第二条命令启用已安装插件中的 Sidecar 与 CLI `statusLine`。 |
 | 按工作区 | 把仓库复制到项目的 `.agents/plugins/context-monitor/` | 打开该工作区的所有成员都会加载插件。 |
 
 安装脚本命令：
 
 ```bash
 node install.mjs --status      # 查看安装和启用状态
-node install.mjs --uninstall   # 在 config.json 中关闭并删除已安装文件
+node install.mjs --uninstall   # 在 config.json / settings.json 中关闭并删除已安装文件
 node install.mjs --help
 ```
 
@@ -91,6 +91,7 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 | `ANTIGRAVITY_SIDECAR_WEB_PORT` | `18990` | 面板服务端口。Antigravity 为 Sidecar 设置该值。 |
 | `AGY_GEMINI_ROOT` | `~/.gemini` | Transcript 查找目录。 |
 | `AGY_CONFIG_DIR` | `~/.gemini/config` | 安装目标目录。`--config-dir <path>` 作用相同。 |
+| `AGY_CLI_SETTINGS_PATH` | `~/.gemini/antigravity-cli/settings.json` | CLI `statusLine` 的目标配置文件。`--cli-settings <path>` 作用相同。 |
 
 ## 隐私与安全
 
