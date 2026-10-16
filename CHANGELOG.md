@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Installer skips notifying the host Language Server (`JetboxWriteState`) when `--config-dir` or `AGY_CONFIG_DIR` points outside `~/.gemini/config`, so running `npm test` inside Antigravity no longer overwrites the host's `config.json`.
+
 ## [0.2.0] - 2026-10-15
 
 First release under the name agy-pulse. Upgrading from 0.1.0:
