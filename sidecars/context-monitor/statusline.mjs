@@ -183,6 +183,7 @@ export async function formatStatusLine(data, options = {}) {
   if (inUncached + inCached + cacheWrite === 0 && turnCount > 0) {
     inUncached = Number(summary.lastUncachedTokens || 0);
     inCached = Number(summary.lastCachedTokens || 0);
+    cacheWrite = Number(summary.lastCacheWriteTokens || 0);
   }
   const promptTokens = inUncached + inCached + cacheWrite;
   const cacheHitPct = promptTokens > 0 ? (inCached / promptTokens) * 100 : 0;

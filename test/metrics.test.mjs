@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -355,6 +356,223 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
     // Time-weighted over all three turns would be 2900 / 181 = 16 tok/s
     assert.equal(metrics.summary.avgE2eTps, 1400 / 16);
     assert.equal(metrics.modelStats[0].avgE2eTps, 1400 / 16);
+  });
+
+  it('keeps slower-model turns in session avgE2eTps when mixed with a much faster model', async () => {
+    const convDir = join(
+      tmpRoot,
+      'antigravity',
+      'brain',
+      'conv-tps-multimodel',
+      '.system_generated',
+      'logs'
+    );
+    mkdirSync(convDir, { recursive: true });
+    const switchModel = (step, from, to) =>
+      JSON.stringify({
+        step_index: step,
+        type: 'USER_INPUT',
+        content: `<USER_SETTINGS_CHANGE>\nThe user changed setting \`Model Selection\` from ${from} to ${to}.\n</USER_SETTINGS_CHANGE>`,
+      });
+    const planner = (step, at, out) =>
+      JSON.stringify({
+        step_index: step,
+        type: 'PLANNER_RESPONSE',
+        created_at: at,
+        input_tokens: 5000,
+        cache_read_tokens: 20000,
+        output_tokens: out,
+      });
+    const generic = (step, at) => JSON.stringify({ step_index: step, type: 'GENERIC', created_at: at });
+
+    const lines = [
+      switchModel(0, 'None', 'Gemini 3.8 Flash'),
+      // 5 Flash turns: 720 tokens in 4s = 180 tok/s each (3600 tok / 20s)
+      planner(1, '2026-10-16T10:00:00Z', 720),
+      generic(2, '2026-10-16T10:00:04Z'),
+      planner(3, '2026-10-16T10:00:05Z', 720),
+      generic(4, '2026-10-16T10:00:09Z'),
+      planner(5, '2026-10-16T10:00:10Z', 720),
+      generic(6, '2026-10-16T10:00:14Z'),
+      planner(7, '2026-10-16T10:00:15Z', 720),
+      generic(8, '2026-10-16T10:00:19Z'),
+      planner(9, '2026-10-16T10:00:20Z', 720),
+      generic(10, '2026-10-16T10:00:24Z'),
+      switchModel(11, 'Gemini 3.8 Flash', 'Claude Opus 5.5 (Thinking)'),
+      // 4 Opus turns: 450 tokens in 10s = 45 tok/s each (1800 tok / 40s)
+      planner(12, '2026-10-16T10:01:00Z', 450),
+      generic(13, '2026-10-16T10:01:10Z'),
+      planner(14, '2026-10-16T10:01:15Z', 450),
+      generic(15, '2026-10-16T10:01:25Z'),
+      planner(16, '2026-10-16T10:01:30Z', 450),
+      generic(17, '2026-10-16T10:01:40Z'),
+      planner(18, '2026-10-16T10:01:45Z', 450),
+      generic(19, '2026-10-16T10:01:55Z'),
+    ];
+    writeFileSync(join(convDir, 'transcript.jsonl'), lines.join('\n') + '\n', 'utf-8');
+
+    const metrics = await getConversationMetrics('conv-tps-multimodel', 'auto');
+    const byModel = new Map(metrics.modelStats.map((m) => [m.model, m]));
+    assert.equal(byModel.get('Gemini 3.8 Flash').avgE2eTps, 180);
+    assert.equal(byModel.get('Claude Opus 5.5 (Thinking)').avgE2eTps, 45);
+    // Pooled across both models: (3600 + 1800) / (20 + 40) = 90 tok/s (not 180 tok/s)
+    assert.equal(metrics.summary.avgE2eTps, 90);
+  });
+
+  it('filters approval stalls even when a majority of turns waited, and preserves >180s active turns', async () => {
+    const convDir = join(
+      tmpRoot,
+      'antigravity',
+      'brain',
+      'conv-tps-majority-wait',
+      '.system_generated',
+      'logs'
+    );
+    mkdirSync(convDir, { recursive: true });
+    const planner = (step, at, out) =>
+      JSON.stringify({
+        step_index: step,
+        type: 'PLANNER_RESPONSE',
+        created_at: at,
+        input_tokens: 2000,
+        cache_read_tokens: 40000,
+        output_tokens: out,
+      });
+    const generic = (step, at) => JSON.stringify({ step_index: step, type: 'GENERIC', created_at: at });
+
+    const lines = [
+      // Turn 1: 600 tokens in 6s = 100 tok/s (auto-approved read)
+      planner(1, '2026-10-16T11:00:00Z', 600),
+      generic(2, '2026-10-16T11:00:06Z'),
+      // Turn 2: 500 tokens in 40s = 12.5 tok/s (waited ~35s for approval)
+      planner(3, '2026-10-16T11:00:10Z', 500),
+      generic(4, '2026-10-16T11:00:50Z'),
+      // Turn 3: 500 tokens in 50s = 10 tok/s (waited ~45s for approval)
+      planner(5, '2026-10-16T11:01:00Z', 500),
+      generic(6, '2026-10-16T11:01:50Z'),
+      // Turn 4: long 200s reasoning turn at 80 tok/s (16,000 tokens, >180s)
+      planner(7, '2026-10-16T11:02:00Z', 16000),
+      generic(8, '2026-10-16T11:05:20Z'),
+    ];
+    writeFileSync(join(convDir, 'transcript.jsonl'), lines.join('\n') + '\n', 'utf-8');
+
+    const metrics = await getConversationMetrics('conv-tps-majority-wait', 'auto');
+    assert.equal(metrics.turns[3].e2eSec, 200);
+    // Keeps Turn 1 (600 / 6s) and Turn 4 (16000 / 200s), dropping the two approval waits
+    assert.equal(metrics.summary.avgE2eTps, 16600 / 206);
+  });
+
+  it('filters transcript-fallback turns in RPC mode and includes cacheWriteTokens in cache hit rate', async () => {
+    const convDir = join(
+      tmpRoot,
+      'antigravity',
+      'brain',
+      'conv-rpc-fallback',
+      '.system_generated',
+      'logs'
+    );
+    mkdirSync(convDir, { recursive: true });
+    const lines = [
+      JSON.stringify({
+        step_index: 1,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T12:00:00Z',
+        input_tokens: 10000,
+        cache_read_tokens: 60000,
+        output_tokens: 600,
+      }),
+      JSON.stringify({ step_index: 2, type: 'GENERIC', created_at: '2026-10-16T12:00:06Z' }),
+      JSON.stringify({
+        step_index: 3,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T12:00:10Z',
+        input_tokens: 10000,
+        cache_read_tokens: 60000,
+        output_tokens: 800,
+      }),
+      JSON.stringify({ step_index: 4, type: 'GENERIC', created_at: '2026-10-16T12:00:20Z' }),
+      // Turn 3 waited ~150s for approval in transcript (1500 / 165s = 9.1 tok/s)
+      JSON.stringify({
+        step_index: 5,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T12:00:25Z',
+        input_tokens: 10000,
+        cache_read_tokens: 60000,
+        output_tokens: 1500,
+      }),
+      JSON.stringify({ step_index: 6, type: 'GENERIC', created_at: '2026-10-16T12:03:10Z' }),
+    ];
+    writeFileSync(join(convDir, 'transcript.jsonl'), lines.join('\n') + '\n', 'utf-8');
+
+    const lsServer = createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          generatorMetadata: [
+            {
+              stepIndices: [1],
+              chatModel: {
+                modelDisplayName: 'Claude Opus 5.5 (Thinking)',
+                timeToFirstToken: '1.0s',
+                streamingDuration: '5.0s',
+                usage: {
+                  inputTokens: 10000,
+                  cacheReadTokens: 60000,
+                  cacheWriteTokens: 30000,
+                  outputTokens: 600,
+                  thinkingOutputTokens: 200,
+                  responseOutputTokens: 400,
+                },
+              },
+            },
+            {
+              stepIndices: [3],
+              chatModel: {
+                modelDisplayName: 'Claude Opus 5.5 (Thinking)',
+                timeToFirstToken: '2.0s',
+                streamingDuration: '8.0s',
+                usage: {
+                  inputTokens: 10000,
+                  cacheReadTokens: 60000,
+                  cacheWriteTokens: 30000,
+                  outputTokens: 800,
+                  thinkingOutputTokens: 300,
+                  responseOutputTokens: 500,
+                },
+              },
+            },
+            {
+              // Missing RPC durations and usage -> falls back to transcript (165s approval wait)
+              stepIndices: [5],
+              chatModel: {
+                modelDisplayName: 'Claude Opus 5.5 (Thinking)',
+              },
+            },
+          ],
+        })
+      );
+    });
+
+    await new Promise((r) => lsServer.listen(0, '127.0.0.1', r));
+    process.env.ANTIGRAVITY_LS_ADDRESS = `127.0.0.1:${lsServer.address().port}`;
+    process.env.ANTIGRAVITY_CSRF_TOKEN = 'test-csrf';
+    try {
+      const metrics = await getConversationMetrics('conv-rpc-fallback', 'auto');
+      assert.equal(metrics.rpcConnected, true);
+      // Turn 1 & 2 each have 60k cached / (10k + 60k + 30k) = 60% cache hit rate
+      assert.equal(metrics.turns[0].totalInput, 100000);
+      assert.equal(metrics.turns[0].cacheHitRate, 60);
+      // Session input: 30k uncached + 180k cached + 60k cacheWrite = 270k -> 180k / 270k = 66.67%
+      assert.ok(Math.abs(metrics.summary.sessionCacheHitRate - (180000 / 270000) * 100) < 1e-9);
+      // Turn 3's 165s transcript-fallback stall is filtered out; avgE2eTps uses Turns 1 & 2 (1400 / 16s)
+      assert.equal(metrics.summary.avgE2eTps, 1400 / 16);
+      // Visible TPS uses only RPC turns with token split: (400 + 500) / 16s
+      assert.equal(metrics.summary.avgVisibleE2eTps, 900 / 16);
+    } finally {
+      delete process.env.ANTIGRAVITY_LS_ADDRESS;
+      delete process.env.ANTIGRAVITY_CSRF_TOKEN;
+      await new Promise((r) => lsServer.close(r));
+    }
   });
 });
 

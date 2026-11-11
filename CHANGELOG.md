@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Average speed filters transcript stalls per model against each model's upper-quartile rate instead of a session-wide median, so switching from a fast model to a slower one no longer drops the slower model's turns, and sessions where most tool calls waited for approval still drop the waits.
+- RPC turns that fall back to transcript timestamps now go through the same stall and short-turn filters as transcript turns, and turns over three minutes (up to ten) keep their measured speed.
+- Turn, per-model, and session average cache hit rates include cache write tokens in total input, matching `statusline.mjs` and cost calculations.
+
 ## [0.3.0] - 2026-10-16
 
 Upgrading from 0.2.0: rerun `node install.mjs`. If the Antigravity CLI is installed, this also adds the status line.

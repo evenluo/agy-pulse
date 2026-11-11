@@ -12,8 +12,6 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { PRICING_PROFILES, computeTurnCost, resolvePricingProfileKey } from './pricing.mjs';
 
-const LS_ADDR = process.env.ANTIGRAVITY_LS_ADDRESS || '';
-const CSRF_TOKEN = process.env.ANTIGRAVITY_CSRF_TOKEN || '';
 const APP_DIRS = ['antigravity', 'antigravity-ide', 'antigravity-cli'];
 const DEFAULT_PHYSICAL_MAX_CONTEXT = 1048576; // 1M physical window for Gemini 3 / 4
 // Used when the RPC reports no limit. Google does not document the threshold;
@@ -23,8 +21,10 @@ const DEFAULT_COMPACTION_MAX_CONTEXT = 256000;
 // Transcript durations are gaps between step timestamps (1-second resolution, TTFT
 // and any wait for tool approval included), so the TPS estimate filters them:
 const TRANSCRIPT_MIN_TPS = 8; // a slower gap is treated as a wait, not generation
+const TRANSCRIPT_MAX_TURN_SEC = 600; // cap transcript step gaps at 10 minutes
 const TRANSCRIPT_MIN_SAMPLE_TOKENS = 100; // shorter turns are mostly TTFT
-const TRANSCRIPT_STALL_RATIO = 3; // a turn below median / 3 waited on something (with two turns: 5x slower)
+const TRANSCRIPT_STALL_QUANTILE = 0.75; // upper-quartile anchor survives >=50% approval-wait sessions
+const TRANSCRIPT_STALL_RATIO = 3; // a turn below p75 / 3 for its model waited on something
 
 export function parseDurationSec(dur) {
   if (!dur) return 0;
@@ -36,17 +36,19 @@ export function parseDurationSec(dur) {
 }
 
 async function callLsRpc(method, body) {
-  if (!LS_ADDR || !CSRF_TOKEN) return null;
+  const lsAddr = process.env.ANTIGRAVITY_LS_ADDRESS || '';
+  const csrfToken = process.env.ANTIGRAVITY_CSRF_TOKEN || '';
+  if (!lsAddr || !csrfToken) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 2500);
   try {
     const res = await fetch(
-      `http://${LS_ADDR}/exa.language_server_pb.LanguageServerService/${method}`,
+      `http://${lsAddr}/exa.language_server_pb.LanguageServerService/${method}`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-codeium-csrf-token': CSRF_TOKEN,
+          'x-codeium-csrf-token': csrfToken,
         },
         body: JSON.stringify(body || {}),
         signal: controller.signal,
@@ -185,7 +187,12 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
         const t0 = Date.parse(s.created_at);
         const t1 = Date.parse(nextStep.created_at);
         const dt = (t1 - t0) / 1000;
-        if (!Number.isNaN(dt) && dt >= 0.05 && dt <= 180 && outTokens / dt >= TRANSCRIPT_MIN_TPS) {
+        if (
+          !Number.isNaN(dt) &&
+          dt >= 0.05 &&
+          dt <= TRANSCRIPT_MAX_TURN_SEC &&
+          outTokens / dt >= TRANSCRIPT_MIN_TPS
+        ) {
           estDurationSec = dt;
         }
       }
@@ -213,12 +220,14 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
         outTokens,
         thinkTokens: 0,
         respTokens: outTokens,
+        hasThinkSplit: false,
         ttftSec: 0,
         streamSec: 0,
         e2eSec: estDurationSec,
         decodeTps: 0,
         e2eTps: !interrupted && estDurationSec >= 0.05 ? outTokens / estDurationSec : 0,
         visibleE2eTps: !interrupted && estDurationSec >= 0.05 ? outTokens / estDurationSec : 0,
+        e2eSource: 'transcript',
         source: 'transcript',
       });
     }
@@ -234,27 +243,56 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
   return { turns, firstUserPrompt, modelHint: fallbackModel, detectedModel, checkpointCount };
 }
 
-function median(values) {
+function quantile(values, q) {
   const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const pos = (sorted.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  return sorted[base + 1] !== undefined
+    ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
+    : sorted[base];
 }
 
-// Turns that feed the time-weighted average E2E TPS. For transcript turns, prefer
-// substantive ones so tiny tool-call turns do not drag the average down (falling back
-// to all valid turns), then drop turns far below the median rate: a long turn that
-// also waited for approval clears TRANSCRIPT_MIN_TPS, and its wait would dominate
-// a time-weighted mean.
+function turnModelGroupKey(turn) {
+  const modelId = String(turn.modelId || turn.model || 'Gemini').trim();
+  const modelName = String(turn.model || modelId).trim();
+  return `${modelId}::${modelName}`;
+}
+
+function isTranscriptTimed(turn) {
+  return (turn.e2eSource || turn.source) === 'transcript';
+}
+
+// Turns that feed the time-weighted average E2E TPS. For transcript-timed turns,
+// prefer substantive ones so tiny tool-call turns do not drag the average down
+// (falling back to all valid turns), then drop turns far below that model's upper-
+// quartile rate: a long turn that also waited for approval clears TRANSCRIPT_MIN_TPS,
+// per-model grouping keeps a fast model from dropping a slower model's turns, and p75
+// stays anchored on generation speed even when >=50% of tool calls waited on approval.
 function selectE2eSampleTurns(turns) {
   const valid = turns.filter((t) => !t.interrupted && t.e2eSec >= 0.05 && t.outTokens > 0);
   const substantive = valid.filter(
-    (t) => t.source !== 'transcript' || t.outTokens >= TRANSCRIPT_MIN_SAMPLE_TOKENS
+    (t) => !isTranscriptTimed(t) || t.outTokens >= TRANSCRIPT_MIN_SAMPLE_TOKENS
   );
   const sample = substantive.length > 0 ? substantive : valid;
-  const rates = sample.filter((t) => t.source === 'transcript').map((t) => t.e2eTps);
-  if (rates.length < 2) return sample;
-  const floor = median(rates) / TRANSCRIPT_STALL_RATIO;
-  return sample.filter((t) => t.source !== 'transcript' || t.e2eTps >= floor);
+
+  const ratesByModel = new Map();
+  for (const t of sample) {
+    const key = turnModelGroupKey(t);
+    if (!ratesByModel.has(key)) ratesByModel.set(key, []);
+    ratesByModel.get(key).push(t.e2eTps);
+  }
+  const floorByModel = new Map();
+  for (const [key, rates] of ratesByModel) {
+    if (rates.length >= 2) {
+      floorByModel.set(key, quantile(rates, TRANSCRIPT_STALL_QUANTILE) / TRANSCRIPT_STALL_RATIO);
+    }
+  }
+  return sample.filter((t) => {
+    if (!isTranscriptTimed(t)) return true;
+    const floor = floorByModel.get(turnModelGroupKey(t));
+    return floor === undefined || t.e2eTps >= floor;
+  });
 }
 
 export async function getConversationMetrics(requestedConvId, requestedPricing, options = {}) {
@@ -317,8 +355,9 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
       const inUncached = Number(usage.inputTokens ?? tTurn?.inUncached ?? 0);
       const inCached = Number(usage.cacheReadTokens ?? tTurn?.inCached ?? 0);
       const cacheWriteTokens = Number(usage.cacheWriteTokens ?? 0);
-      const totalInput = inUncached + inCached;
+      const totalInput = inUncached + inCached + cacheWriteTokens;
 
+      const hasThinkSplit = usage.outputTokens !== undefined;
       const outTokens = Number(usage.outputTokens ?? tTurn?.outTokens ?? 0);
       const thinkTokens = Number(usage.thinkingOutputTokens ?? 0);
       const respTokens = Number(
@@ -328,12 +367,13 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
       const ttftSec = parseDurationSec(cm.timeToFirstToken);
       const streamSec = parseDurationSec(cm.streamingDuration);
       const interrupted = Boolean(tTurn?.interrupted);
-      const e2eSec =
-        ttftSec + streamSec > 0
-          ? ttftSec + streamSec
-          : !interrupted
-            ? tTurn?.e2eSec || 0
-            : 0;
+      const hasRpcE2e = ttftSec + streamSec > 0;
+      const e2eSec = hasRpcE2e
+        ? ttftSec + streamSec
+        : !interrupted
+          ? tTurn?.e2eSec || 0
+          : 0;
+      const e2eSource = hasRpcE2e ? 'rpc' : e2eSec > 0 ? 'transcript' : 'rpc';
 
       const contextUsed = totalInput > 0 ? totalInput : Number(ctxMeta.estimatedTokensUsed || 0);
       const rpcCompactionLimit = Number(ctxMeta.maxContextTokens || DEFAULT_COMPACTION_MAX_CONTEXT);
@@ -374,12 +414,14 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
         outTokens,
         thinkTokens,
         respTokens,
+        hasThinkSplit,
         ttftSec,
         streamSec,
         e2eSec,
         decodeTps,
         e2eTps,
         visibleE2eTps,
+        e2eSource,
         source: 'rpc',
       });
     }
@@ -422,9 +464,9 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
   const totalInUncached = turns.reduce((acc, t) => acc + t.inUncached, 0);
   const totalInCached = turns.reduce((acc, t) => acc + t.inCached, 0);
   const totalCacheWriteTokens = turns.reduce((acc, t) => acc + (t.cacheWriteTokens || 0), 0);
-  const totalInputTokens = totalInUncached + totalInCached;
+  const totalInputTokens = totalInUncached + totalInCached + totalCacheWriteTokens;
   const sessionTotalTokens = totalInputTokens + totalOutTokens;
-  const sessionNetTokens = totalInUncached + totalOutTokens;
+  const sessionNetTokens = totalInUncached + totalCacheWriteTokens + totalOutTokens;
 
   const totalInUncachedCostUsd = turns.reduce((acc, t) => acc + (t.inUncachedCostUsd || 0), 0);
   const totalInCachedCostUsd = turns.reduce((acc, t) => acc + (t.inCachedCostUsd || 0), 0);
@@ -534,6 +576,7 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
         highTierTurnCount: g.highTierTurnCount,
         inUncached: g.inUncached,
         inCached: g.inCached,
+        cacheWriteTokens: g.cacheWriteTokens,
         totalInput: g.totalInput,
         cacheHitRate,
         outTokens: g.outTokens,
@@ -569,10 +612,12 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
   const avgDecodeTps = sumDecodeSec > 0 ? sumDecodeOut / sumDecodeSec : 0;
 
   const sumE2eOut = validE2eTurns.reduce((a, t) => a + t.outTokens, 0);
-  const sumE2eResp = validE2eTurns.reduce((a, t) => a + t.respTokens, 0);
   const sumE2eSec = validE2eTurns.reduce((a, t) => a + t.e2eSec, 0);
   const avgE2eTps = sumE2eSec > 0 ? sumE2eOut / sumE2eSec : 0;
-  const avgVisibleE2eTps = sumE2eSec > 0 ? sumE2eResp / sumE2eSec : 0;
+  const validVisTurns = validE2eTurns.filter((t) => t.hasThinkSplit);
+  const sumVisResp = validVisTurns.reduce((a, t) => a + t.respTokens, 0);
+  const sumVisSec = validVisTurns.reduce((a, t) => a + t.e2eSec, 0);
+  const avgVisibleE2eTps = sumVisSec > 0 ? sumVisResp / sumVisSec : 0;
 
   const peakE2eTps = Math.max(0, ...turns.map((t) => t.e2eTps || 0));
   const peakDecodeTps = Math.max(0, ...turns.map((t) => t.decodeTps || 0));
@@ -610,6 +655,7 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
       lastCacheHitRate: lastCtxTurn?.cacheHitRate || 0,
       lastCachedTokens: lastCtxTurn?.inCached || 0,
       lastUncachedTokens: lastCtxTurn?.inUncached || 0,
+      lastCacheWriteTokens: lastCtxTurn?.cacheWriteTokens || 0,
       sessionCacheHitRate: totalInputTokens > 0 ? (totalInCached / totalInputTokens) * 100 : 0,
       lastDecodeTps: lastPerfTurn?.decodeTps || 0,
       lastE2eTps: lastPerfTurn?.e2eTps || 0,
