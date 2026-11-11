@@ -6,9 +6,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Fixed
 
-- Average speed filters transcript stalls per model against each model's upper-quartile rate instead of a session-wide median, so switching from a fast model to a slower one no longer drops the slower model's turns, and sessions where most tool calls waited for approval still drop the waits.
-- RPC turns that fall back to transcript timestamps now go through the same stall and short-turn filters as transcript turns, and turns over three minutes (up to ten) keep their measured speed.
-- Turn, per-model, and session average cache hit rates include cache write tokens in total input, matching `statusline.mjs` and cost calculations.
+- Average, peak, and last-measured speed filter transcript stalls per model against each model's upper-quartile rate instead of a session-wide median, skip 1-second timestamp rounding spikes when longer turns exist, and omit unmeasured or stalled turns from the trend line instead of plotting them at 0 tok/s.
+- RPC turns that fall back to transcript timestamps now go through the same stall and short-turn filters as transcript turns, turns over three minutes (up to ten) keep their measured speed, and earlier transcript turns stay in the session when the Language Server only reports metadata for recent turns.
+- Turn, per-model, and session cache hit rates include cache write tokens in total input, and session/per-model cache savings subtract cache write premiums from total savings so `cost + saved` matches uncached cost.
+- Multiple model switches before a single message are applied in order, interrupted latest turns show as interrupted on the Last turn card instead of displaying the prior turn's output, and Gemini 4 Carbon is labeled alongside Argon on their shared pricing profile.
 
 ## [0.3.0] - 2026-10-16
 

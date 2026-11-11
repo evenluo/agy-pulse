@@ -28,6 +28,8 @@ describe('Pricing & Cost Engine', () => {
     const cases = {
       'Gemini 4 Argon (High)': 'gemini_4_argon',
       'gemini-4-argon': 'gemini_4_argon',
+      'Gemini 4 Carbon (Medium)': 'gemini_4_argon',
+      'gemini-4-carbon': 'gemini_4_argon',
       'Gemini 3.1 Pro (High)': 'gemini_3_1_pro',
       'Gemini 2.5 Pro': 'gemini_pro',
       'Gemini 3.8 Flash': 'gemini_3_6_flash',
@@ -222,9 +224,11 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
     assert.equal(metrics.summary.contextUsed, 225000);
     assert.equal(metrics.summary.maxContext, 1048576);
     assert.equal(metrics.summary.compactionMaxContext, 256000);
-    // The 225k turn runs on Claude Sonnet 4.6, which has no long-context tier.
+    // The 225k turn runs on Claude Sonnet 4.6, which has no long-context tier, and was interrupted.
     assert.equal(metrics.summary.highTierTurnCount, 0);
     assert.equal(metrics.summary.priceTierThreshold, 0);
+    assert.equal(metrics.summary.lastTurnInterrupted, true);
+    assert.equal(metrics.summary.lastOutTokens, 600);
 
     const forced = await getConversationMetrics('conv-12345678', 'gemini_3_1_pro');
     assert.equal(forced.summary.priceTierThreshold, 200000);
@@ -314,11 +318,12 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
     assert.equal(metrics.modelStats[0].avgE2eTps, 100);
     // Final turn output tokens are preserved in summary.lastOutTokens
     assert.equal(metrics.summary.lastOutTokens, 1500);
-    // The final turn has no duration, so the last measured speed is Turn 2's
-    assert.equal(metrics.summary.lastE2eTps, 10);
+    // Last measured and peak speed use substantive Turn 1 (100 tok/s), ignoring micro Turn 2 (10 tok/s)
+    assert.equal(metrics.summary.lastE2eTps, 100);
+    assert.equal(metrics.summary.peakE2eTps, 100);
   });
 
-  it('drops a long turn that also waited for approval from transcript avgE2eTps', async () => {
+  it('drops a long turn that also waited for approval from transcript avgE2eTps and lastE2eTps', async () => {
     const convDir = join(
       tmpRoot,
       'antigravity',
@@ -353,9 +358,12 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
 
     const metrics = await getConversationMetrics('conv-tps-long-wait', 'auto');
     assert.equal(metrics.turns[2].e2eSec, 165);
+    assert.equal(metrics.turns[2].stalled, true);
     // Time-weighted over all three turns would be 2900 / 181 = 16 tok/s
     assert.equal(metrics.summary.avgE2eTps, 1400 / 16);
     assert.equal(metrics.modelStats[0].avgE2eTps, 1400 / 16);
+    // Last measured speed falls back to Turn 2 (80 tok/s), ignoring stalled Turn 3 (9.1 tok/s)
+    assert.equal(metrics.summary.lastE2eTps, 80);
   });
 
   it('keeps slower-model turns in session avgE2eTps when mixed with a much faster model', async () => {
@@ -568,6 +576,150 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
       assert.equal(metrics.summary.avgE2eTps, 1400 / 16);
       // Visible TPS uses only RPC turns with token split: (400 + 500) / 16s
       assert.equal(metrics.summary.avgVisibleE2eTps, 900 / 16);
+      // Net cache savings account for Claude's 1.25x cache write premium (cost + saved === noCacheTotalCost)
+      assert.ok(
+        Math.abs(
+          metrics.summary.totalCostUsd +
+            metrics.summary.savedByCacheUsd -
+            metrics.summary.noCacheTotalCostUsd
+        ) < 1e-9
+      );
+    } finally {
+      delete process.env.ANTIGRAVITY_LS_ADDRESS;
+      delete process.env.ANTIGRAVITY_CSRF_TOKEN;
+      await new Promise((r) => lsServer.close(r));
+    }
+  });
+
+  it('preserves historical transcript turns when RPC only covers recent post-reload turns, and nets cache write costs', async () => {
+    const convDir = join(
+      tmpRoot,
+      'antigravity',
+      'brain',
+      'conv-rpc-partial',
+      '.system_generated',
+      'logs'
+    );
+    mkdirSync(convDir, { recursive: true });
+    const lines = [
+      // Historical Turn 1 before reload: two model switches in a single USER_INPUT (None -> Pro -> Flash)
+      JSON.stringify({
+        step_index: 0,
+        type: 'USER_INPUT',
+        content:
+          '<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Gemini 3.1 Pro (High).\n</USER_SETTINGS_CHANGE>\n' +
+          '<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from Gemini 3.1 Pro (High) to Gemini 3.8 Flash.\n</USER_SETTINGS_CHANGE>',
+      }),
+      JSON.stringify({
+        step_index: 1,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T13:00:00Z',
+        input_tokens: 20000,
+        cache_read_tokens: 0,
+        output_tokens: 800,
+      }),
+      JSON.stringify({ step_index: 2, type: 'GENERIC', created_at: '2026-10-16T13:00:05Z' }),
+      // Historical Turn 2: 1s timestamp rounding spike (180 tok in 1s = 180 tok/s vs Turn 1's 160 tok/s)
+      JSON.stringify({
+        step_index: 3,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T13:00:10Z',
+        input_tokens: 5000,
+        cache_read_tokens: 18000,
+        output_tokens: 180,
+      }),
+      JSON.stringify({ step_index: 4, type: 'GENERIC', created_at: '2026-10-16T13:00:11Z' }),
+      // Post-reload Turn 3 & Turn 4 on Claude Opus 5.5
+      JSON.stringify({
+        step_index: 5,
+        type: 'USER_INPUT',
+        content:
+          '<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from Gemini 3.8 Flash to Claude Opus 5.5 (Thinking).\n</USER_SETTINGS_CHANGE>',
+      }),
+      JSON.stringify({
+        step_index: 6,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T13:05:00Z',
+        input_tokens: 0,
+        cache_read_tokens: 0,
+        output_tokens: 500,
+      }),
+      JSON.stringify({ step_index: 7, type: 'GENERIC', created_at: '2026-10-16T13:05:10Z' }),
+      JSON.stringify({
+        step_index: 8,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T13:05:15Z',
+        input_tokens: 0,
+        cache_read_tokens: 100000,
+        output_tokens: 500,
+      }),
+    ];
+    writeFileSync(join(convDir, 'transcript.jsonl'), lines.join('\n') + '\n', 'utf-8');
+
+    // RPC only has post-reload steps 6 and 8:
+    // Step 6 writes 100k cache ($5/M = $0.50 vs $0.40 uncached -> -$0.10 premium)
+    // Step 8 reads 100k cache ($0.20/M = $0.02 vs $0.40 uncached -> +$0.38 gross, +$0.28 net)
+    const lsServer = createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          generatorMetadata: [
+            {
+              stepIndices: [6],
+              chatModel: {
+                modelDisplayName: 'Claude Opus 5.5 (Thinking)',
+                timeToFirstToken: '1.0s',
+                streamingDuration: '9.0s',
+                usage: {
+                  inputTokens: 0,
+                  cacheReadTokens: 0,
+                  cacheWriteTokens: 100000,
+                  outputTokens: 500,
+                  thinkingOutputTokens: 200,
+                  responseOutputTokens: 300,
+                },
+              },
+            },
+            {
+              stepIndices: [8],
+              chatModel: {
+                modelDisplayName: 'Claude Opus 5.5 (Thinking)',
+                timeToFirstToken: '0.8s',
+                streamingDuration: '9.2s',
+                usage: {
+                  inputTokens: 0,
+                  cacheReadTokens: 100000,
+                  cacheWriteTokens: 0,
+                  outputTokens: 500,
+                  thinkingOutputTokens: 200,
+                  responseOutputTokens: 300,
+                },
+              },
+            },
+          ],
+        })
+      );
+    });
+
+    await new Promise((r) => lsServer.listen(0, '127.0.0.1', r));
+    process.env.ANTIGRAVITY_LS_ADDRESS = `127.0.0.1:${lsServer.address().port}`;
+    process.env.ANTIGRAVITY_CSRF_TOKEN = 'test-csrf';
+    try {
+      const metrics = await getConversationMetrics('conv-rpc-partial', 'auto');
+      // All 4 turns (2 historical transcript + 2 live RPC) are preserved in step order
+      assert.equal(metrics.summary.turnCount, 4);
+      assert.equal(metrics.turns[0].model, 'Gemini 3.8 Flash');
+      assert.equal(metrics.turns[0].source, 'transcript');
+      assert.equal(metrics.turns[2].model, 'Claude Opus 5.5 (Thinking)');
+      assert.equal(metrics.turns[2].source, 'rpc');
+      assert.equal(metrics.model, 'Claude Opus 5.5 (Thinking)');
+
+      // 1-second quantization spike on Turn 2 (180 tok/s) is skipped in favor of >=2s Turn 1 (160 tok/s)
+      assert.equal(metrics.summary.peakE2eTps, 160);
+
+      // Opus net cache savings = ($0.40 + $0.40) - ($0.50 + $0.02) = $0.28 (not $0.38)
+      const opusStats = metrics.modelStats.find((m) => m.model === 'Claude Opus 5.5 (Thinking)');
+      assert.ok(Math.abs(opusStats.savedByCacheUsd - 0.28) < 1e-9);
     } finally {
       delete process.env.ANTIGRAVITY_LS_ADDRESS;
       delete process.env.ANTIGRAVITY_CSRF_TOKEN;

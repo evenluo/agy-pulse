@@ -10,8 +10,8 @@
 
 export const PRICING_PROFILES = {
   gemini_4_argon: {
-    label: 'Gemini 4 Argon ($2/$0.1/$10 · from 2026-12-01 $4/$0.2/$20)',
-    shortLabel: 'Gemini 4 Argon',
+    label: 'Gemini 4 Argon / Carbon ($2/$0.1/$10 · from 2026-12-01 $4/$0.2/$20)',
+    shortLabel: 'Gemini 4 Argon / Carbon',
     base: { inUncached: 2.0, inCached: 0.1, cacheWrite: 2.0, out: 10.0 },
     priceChange: {
       from: '2026-12-01',
@@ -103,7 +103,9 @@ export function resolvePricingProfileKey(modelName, requestedProfile) {
     if (v === '3.6' || v === '3.7' || v === '3.8') return 'gemini_3_6_flash';
     return v === '3' ? 'gemini_3_flash' : 'gemini_flash';
   }
-  if (m.includes('argon') || m.includes('gemini 4') || m.includes('gemini-4')) return 'gemini_4_argon';
+  if (m.includes('argon') || m.includes('carbon') || m.includes('gemini 4') || m.includes('gemini-4')) {
+    return 'gemini_4_argon';
+  }
   if (m.includes('2.5')) return 'gemini_pro';
   return 'gemini_3_1_pro';
 }

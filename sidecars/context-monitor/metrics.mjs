@@ -23,6 +23,7 @@ const DEFAULT_COMPACTION_MAX_CONTEXT = 256000;
 const TRANSCRIPT_MIN_TPS = 8; // a slower gap is treated as a wait, not generation
 const TRANSCRIPT_MAX_TURN_SEC = 600; // cap transcript step gaps at 10 minutes
 const TRANSCRIPT_MIN_SAMPLE_TOKENS = 100; // shorter turns are mostly TTFT
+const TRANSCRIPT_MIN_SAMPLE_SEC = 2; // 1s step gaps carry up to 2x timestamp rounding error
 const TRANSCRIPT_STALL_QUANTILE = 0.75; // upper-quartile anchor survives >=50% approval-wait sessions
 const TRANSCRIPT_STALL_RATIO = 3; // a turn below p75 / 3 for its model waited on something
 
@@ -144,12 +145,12 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
         const text = (m ? m[1] : s.content).trim().replace(/\s+/g, ' ');
         firstUserPrompt = text.slice(0, 80);
       }
-      const settingsMatch = s.content.match(/<USER_SETTINGS_CHANGE>([\s\S]*?)<\/USER_SETTINGS_CHANGE>/);
-      if (settingsMatch) {
-        const mmFull = settingsMatch[1].match(
-          /Model Selection` from ([^\n]+?) to ([^\n]+?)(?:\.\s+No need to comment|\.\s*$|\n|$)/
-        );
-        if (mmFull) {
+      for (const settingsMatch of s.content.matchAll(
+        /<USER_SETTINGS_CHANGE>([\s\S]*?)<\/USER_SETTINGS_CHANGE>/g
+      )) {
+        for (const mmFull of settingsMatch[1].matchAll(
+          /Model Selection` from ([^\n]+?) to ([^\n]+?)(?:\.\s+No need to comment|\.\s*$|\n|$)/g
+        )) {
           const fromModel = mmFull[1].trim();
           const toModel = mmFull[2].trim();
           if (!currentModel && fromModel && fromModel !== 'None') {
@@ -202,13 +203,16 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
         modelHint = stepModelId;
       }
 
+      const explicitModel = currentModel || stepModelId || '';
       turns.push({
         turn: turns.length + 1,
-        stepIndex: s.step_index,
+        stepIndex: s.step_index ?? i,
+        hasStepIndex: s.step_index !== undefined && s.step_index !== null,
         createdAt: s.created_at || null,
         interrupted,
-        model: currentModel || stepModelId || '',
+        model: explicitModel,
         modelId: stepModelId || currentModel || '',
+        hasExplicitModel: Boolean(explicitModel),
         inUncached,
         inCached,
         cacheWriteTokens: 0,
@@ -236,6 +240,7 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
   const detectedModel = currentModel || modelHint || '';
   const fallbackModel = detectedModel || fallbackModelName || 'Gemini 3.1 Pro (High)';
   for (const t of turns) {
+    if (t.model) t.hasExplicitModel = true;
     if (!t.model) t.model = fallbackModel;
     if (!t.modelId) t.modelId = t.model;
   }
@@ -263,16 +268,19 @@ function isTranscriptTimed(turn) {
   return (turn.e2eSource || turn.source) === 'transcript';
 }
 
-// Turns that feed the time-weighted average E2E TPS. For transcript-timed turns,
-// prefer substantive ones so tiny tool-call turns do not drag the average down
+// Turns that feed the time-weighted average, peak, and last-measured E2E TPS. For
+// transcript-timed turns, prefer substantive ones (>=100 tokens and >=2s) so tiny
+// tool-call turns and 1-second timestamp rounding spikes do not skew the speed
 // (falling back to all valid turns), then drop turns far below that model's upper-
 // quartile rate: a long turn that also waited for approval clears TRANSCRIPT_MIN_TPS,
 // per-model grouping keeps a fast model from dropping a slower model's turns, and p75
 // stays anchored on generation speed even when >=50% of tool calls waited on approval.
-function selectE2eSampleTurns(turns) {
+function evaluateE2eTurns(turns) {
   const valid = turns.filter((t) => !t.interrupted && t.e2eSec >= 0.05 && t.outTokens > 0);
   const substantive = valid.filter(
-    (t) => !isTranscriptTimed(t) || t.outTokens >= TRANSCRIPT_MIN_SAMPLE_TOKENS
+    (t) =>
+      !isTranscriptTimed(t) ||
+      (t.outTokens >= TRANSCRIPT_MIN_SAMPLE_TOKENS && t.e2eSec >= TRANSCRIPT_MIN_SAMPLE_SEC)
   );
   const sample = substantive.length > 0 ? substantive : valid;
 
@@ -288,11 +296,24 @@ function selectE2eSampleTurns(turns) {
       floorByModel.set(key, quantile(rates, TRANSCRIPT_STALL_QUANTILE) / TRANSCRIPT_STALL_RATIO);
     }
   }
-  return sample.filter((t) => {
-    if (!isTranscriptTimed(t)) return true;
+
+  const stalledTurns = new Set();
+  for (const t of valid) {
+    if (!isTranscriptTimed(t)) continue;
     const floor = floorByModel.get(turnModelGroupKey(t));
-    return floor === undefined || t.e2eTps >= floor;
-  });
+    if (floor !== undefined && t.e2eTps < floor) {
+      stalledTurns.add(t);
+    }
+  }
+
+  return {
+    sampleTurns: sample.filter((t) => !stalledTurns.has(t)),
+    stalledTurns,
+  };
+}
+
+function selectE2eSampleTurns(turns) {
+  return evaluateE2eTurns(turns).sampleTurns;
 }
 
 export async function getConversationMetrics(requestedConvId, requestedPricing, options = {}) {
@@ -330,21 +351,46 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
   let latestTokenBreakdown = null;
   let maxRpcCheckpointIndex = 0;
 
-  const tTurnByStep = new Map();
-  for (const tt of transcriptData.turns) {
-    if (tt.stepIndex !== undefined && tt.stepIndex !== null) {
-      tTurnByStep.set(Number(tt.stepIndex), tt);
+  const tTurnIndexByStep = new Map();
+  for (let idx = 0; idx < transcriptData.turns.length; idx++) {
+    const tt = transcriptData.turns[idx];
+    if (tt.hasStepIndex) {
+      tTurnIndexByStep.set(Number(tt.stepIndex), idx);
     }
   }
 
   if (rpcItems.length > 0) {
+    const matchedTranscriptIndices = new Set();
+    const mergedEntries = [];
+    let firstRpcModel = '';
+    let firstRpcModelId = '';
+
     for (let i = 0; i < rpcItems.length; i++) {
       const rItem = rpcItems[i];
       const cm = rItem.chatModel;
-      const stepIdx = rItem.stepIndices?.[0];
-      const tTurn =
-        (stepIdx !== undefined ? tTurnByStep.get(Number(stepIdx)) : null) ||
-        (rpcItems.length === transcriptData.turns.length ? transcriptData.turns[i] : null);
+      const stepIndices = Array.isArray(rItem.stepIndices) ? rItem.stepIndices : [];
+      let tIdx = -1;
+      for (const rawIdx of stepIndices) {
+        const cand = tTurnIndexByStep.get(Number(rawIdx));
+        if (cand !== undefined && !matchedTranscriptIndices.has(cand)) {
+          tIdx = cand;
+          break;
+        }
+      }
+      if (
+        tIdx === -1 &&
+        stepIndices.length === 0 &&
+        rpcItems.length === transcriptData.turns.length &&
+        !matchedTranscriptIndices.has(i)
+      ) {
+        tIdx = i;
+      }
+      const tTurn = tIdx >= 0 ? transcriptData.turns[tIdx] : null;
+      if (tIdx >= 0) matchedTranscriptIndices.add(tIdx);
+
+      const stepIdx = tTurn?.hasStepIndex
+        ? tTurn.stepIndex
+        : (stepIndices[0] ?? tTurn?.stepIndex ?? i);
 
       const usage = cm.usage || {};
       const ctxMeta = cm.chatStartMetadata?.contextWindowMetadata || {};
@@ -379,16 +425,19 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
       const rpcCompactionLimit = Number(ctxMeta.maxContextTokens || DEFAULT_COMPACTION_MAX_CONTEXT);
       const maxContext = DEFAULT_PHYSICAL_MAX_CONTEXT;
 
+      const explicitTModel = tTurn?.hasExplicitModel ? tTurn.model : '';
+      const explicitTModelId = tTurn?.hasExplicitModel ? tTurn.modelId : '';
       const turnModelDisplay =
-        cm.modelDisplayName || tTurn?.model || cm.responseModel || usage.model || activeModel;
+        cm.modelDisplayName || explicitTModel || cm.responseModel || usage.model || activeModel;
       const turnModelId =
-        cm.responseModel || usage.model || cm.model || tTurn?.modelId || turnModelDisplay;
+        cm.responseModel || usage.model || cm.model || explicitTModelId || turnModelDisplay;
 
       if (turnModelDisplay) {
         activeModel = turnModelDisplay;
-      }
-      if (ctxMeta.tokenBreakdown) {
-        latestTokenBreakdown = ctxMeta.tokenBreakdown;
+        if (!firstRpcModel) {
+          firstRpcModel = turnModelDisplay;
+          firstRpcModelId = turnModelId;
+        }
       }
 
       // Guard decodeTps against single-chunk buffered responses (streamSec < 0.15s)
@@ -396,41 +445,85 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
       const e2eTps = !interrupted && e2eSec >= 0.05 ? outTokens / e2eSec : 0;
       const visibleE2eTps = !interrupted && e2eSec >= 0.05 ? respTokens / e2eSec : 0;
 
-      turns.push({
-        turn: i + 1,
-        stepIndex: stepIdx ?? tTurn?.stepIndex ?? i,
-        createdAt: tTurn?.createdAt || cm.chatStartMetadata?.createdAt || null,
-        interrupted,
-        model: turnModelDisplay,
-        modelId: turnModelId,
-        inUncached,
-        inCached,
-        cacheWriteTokens,
-        totalInput,
-        contextUsed,
-        maxContext,
-        compactionMaxContext: rpcCompactionLimit,
-        cacheHitRate: totalInput > 0 ? (inCached / totalInput) * 100 : 0,
-        outTokens,
-        thinkTokens,
-        respTokens,
-        hasThinkSplit,
-        ttftSec,
-        streamSec,
-        e2eSec,
-        decodeTps,
-        e2eTps,
-        visibleE2eTps,
-        e2eSource,
-        source: 'rpc',
+      const numericStep = Number(stepIdx);
+      mergedEntries.push({
+        sortStep: Number.isFinite(numericStep) ? numericStep : Number.MAX_SAFE_INTEGER,
+        order: transcriptData.turns.length + i,
+        tokenBreakdown: ctxMeta.tokenBreakdown || null,
+        turnObj: {
+          turn: 0,
+          stepIndex: stepIdx,
+          createdAt: tTurn?.createdAt || cm.chatStartMetadata?.createdAt || null,
+          interrupted,
+          model: turnModelDisplay,
+          modelId: turnModelId,
+          inUncached,
+          inCached,
+          cacheWriteTokens,
+          totalInput,
+          contextUsed,
+          maxContext,
+          compactionMaxContext: rpcCompactionLimit,
+          cacheHitRate: totalInput > 0 ? (inCached / totalInput) * 100 : 0,
+          outTokens,
+          thinkTokens,
+          respTokens,
+          hasThinkSplit,
+          ttftSec,
+          streamSec,
+          e2eSec,
+          decodeTps,
+          e2eTps,
+          visibleE2eTps,
+          e2eSource,
+          source: 'rpc',
+        },
       });
     }
+
+    // Preserve earlier or unmatched transcript turns when RPC only covers recent turns
+    for (let tIdx = 0; tIdx < transcriptData.turns.length; tIdx++) {
+      if (matchedTranscriptIndices.has(tIdx)) continue;
+      const tTurn = transcriptData.turns[tIdx];
+      const fallbackM = firstRpcModel || activeModel || 'Gemini';
+      const model = tTurn.hasExplicitModel ? tTurn.model : fallbackM;
+      const modelId = tTurn.hasExplicitModel
+        ? tTurn.modelId || model
+        : firstRpcModelId || model;
+      const { hasStepIndex: _hs, hasExplicitModel: _hm, ...restTurn } = tTurn;
+      const numericStep = Number(tTurn.stepIndex);
+      mergedEntries.push({
+        sortStep: Number.isFinite(numericStep) ? numericStep : tIdx,
+        order: tIdx,
+        tokenBreakdown: null,
+        turnObj: {
+          ...restTurn,
+          model,
+          modelId,
+        },
+      });
+    }
+
+    mergedEntries.sort((a, b) => a.sortStep - b.sortStep || a.order - b.order);
+    for (let idx = 0; idx < mergedEntries.length; idx++) {
+      const entry = mergedEntries[idx];
+      entry.turnObj.turn = idx + 1;
+      if (entry.tokenBreakdown) {
+        latestTokenBreakdown = entry.tokenBreakdown;
+      }
+      turns.push(entry.turnObj);
+    }
+    if (turns.length > 0 && turns[turns.length - 1].model) {
+      activeModel = turns[turns.length - 1].model;
+    }
   } else {
-    for (const tTurn of transcriptData.turns) {
+    for (let idx = 0; idx < transcriptData.turns.length; idx++) {
+      const { hasStepIndex: _hs, hasExplicitModel: _hm, ...restTurn } = transcriptData.turns[idx];
       turns.push({
-        ...tTurn,
-        model: tTurn.model || activeModel || 'Gemini',
-        modelId: tTurn.modelId || tTurn.model || activeModel || 'Gemini',
+        ...restTurn,
+        turn: idx + 1,
+        model: restTurn.model || activeModel || 'Gemini',
+        modelId: restTurn.modelId || restTurn.model || activeModel || 'Gemini',
       });
     }
   }
@@ -451,13 +544,22 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
   const pricingProfileKey = resolvePricingProfileKey(activeModel, requestedPricing);
   const pricingProfile = PRICING_PROFILES[pricingProfileKey] || PRICING_PROFILES.gemini_3_1_pro;
 
+  // Time-weighted session TPS and stall classification
+  const validDecodeTurns = turns.filter((t) => !t.interrupted && t.streamSec >= 0.15 && t.outTokens > 0);
+  const { sampleTurns: validE2eTurns, stalledTurns } = evaluateE2eTurns(turns);
+  const validE2eSet = new Set(validE2eTurns);
+  for (const t of turns) {
+    t.stalled = stalledTurns.has(t);
+  }
+  const ttftTurns = turns.filter((t) => !t.interrupted && t.ttftSec > 0);
+
   const lastTurn = turns[turns.length - 1] || null;
-  const lastCtxTurn = [...turns].reverse().find((t) => t.contextUsed > 0) || lastTurn;
-  const lastOutTurn =
-    [...turns].reverse().find((t) => !t.interrupted && t.outTokens > 0) || lastTurn;
+  const currentTurn = [...turns].reverse().find((t) => t.contextUsed > 0) || lastTurn;
   const lastPerfTurn =
-    [...turns].reverse().find((t) => !t.interrupted && (t.e2eTps > 0 || t.decodeTps > 0)) ||
-    lastOutTurn;
+    [...turns].reverse().find((t) => !t.interrupted && (validE2eSet.has(t) || t.decodeTps > 0)) ||
+    [...turns].reverse().find((t) => !t.interrupted && !t.stalled && t.e2eTps > 0) ||
+    currentTurn;
+
   const totalOutTokens = turns.reduce((acc, t) => acc + t.outTokens, 0);
   const totalThinkTokens = turns.reduce((acc, t) => acc + t.thinkTokens, 0);
   const totalRespTokens = turns.reduce((acc, t) => acc + t.respTokens, 0);
@@ -470,13 +572,14 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
 
   const totalInUncachedCostUsd = turns.reduce((acc, t) => acc + (t.inUncachedCostUsd || 0), 0);
   const totalInCachedCostUsd = turns.reduce((acc, t) => acc + (t.inCachedCostUsd || 0), 0);
+  const totalCacheWriteCostUsd = turns.reduce((acc, t) => acc + (t.cacheWriteCostUsd || 0), 0);
   const totalInputCostUsd = turns.reduce((acc, t) => acc + (t.inputCostUsd || 0), 0);
   const totalThinkCostUsd = turns.reduce((acc, t) => acc + (t.thinkCostUsd || 0), 0);
   const totalRespCostUsd = turns.reduce((acc, t) => acc + (t.respCostUsd || 0), 0);
   const totalOutputCostUsd = turns.reduce((acc, t) => acc + (t.outputCostUsd || 0), 0);
   const totalCostUsd = turns.reduce((acc, t) => acc + (t.costUsd || 0), 0);
   const noCacheTotalCostUsd = turns.reduce((acc, t) => acc + (t.noCacheTotalCostUsd || 0), 0);
-  const savedByCacheUsd = turns.reduce((acc, t) => acc + (t.savedByCacheUsd || 0), 0);
+  const savedByCacheUsd = Math.max(0, noCacheTotalCostUsd - totalCostUsd);
   const savedByCachePct =
     noCacheTotalCostUsd > 0 ? (savedByCacheUsd / noCacheTotalCostUsd) * 100 : 0;
   const highTierTurnCount = turns.filter((t) => t.isHighTier).length;
@@ -506,13 +609,13 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
         totalTokens: 0,
         inUncachedCostUsd: 0,
         inCachedCostUsd: 0,
+        cacheWriteCostUsd: 0,
         inputCostUsd: 0,
         thinkCostUsd: 0,
         respCostUsd: 0,
         outputCostUsd: 0,
         costUsd: 0,
         noCacheTotalCostUsd: 0,
-        savedByCacheUsd: 0,
         _turns: [],
         _decOutSum: 0,
         _decSecSum: 0,
@@ -533,13 +636,13 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
     g.totalTokens += t.totalInput + t.outTokens;
     g.inUncachedCostUsd += t.inUncachedCostUsd || 0;
     g.inCachedCostUsd += t.inCachedCostUsd || 0;
+    g.cacheWriteCostUsd += t.cacheWriteCostUsd || 0;
     g.inputCostUsd += t.inputCostUsd || 0;
     g.thinkCostUsd += t.thinkCostUsd || 0;
     g.respCostUsd += t.respCostUsd || 0;
     g.outputCostUsd += t.outputCostUsd || 0;
     g.costUsd += t.costUsd || 0;
     g.noCacheTotalCostUsd += t.noCacheTotalCostUsd || 0;
-    g.savedByCacheUsd += t.savedByCacheUsd || 0;
     g._turns.push(t);
     if (!t.interrupted && t.streamSec >= 0.15 && t.outTokens > 0) {
       g._decOutSum += t.outTokens;
@@ -557,8 +660,9 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
       const turnSharePct = turns.length > 0 ? (g.turnCount / turns.length) * 100 : 0;
       const tokenSharePct = sessionTotalTokens > 0 ? (g.totalTokens / sessionTotalTokens) * 100 : 0;
       const costSharePct = totalCostUsd > 0 ? (g.costUsd / totalCostUsd) * 100 : 0;
+      const savedByCacheUsdModel = Math.max(0, g.noCacheTotalCostUsd - g.costUsd);
       const savedByCachePctModel =
-        g.noCacheTotalCostUsd > 0 ? (g.savedByCacheUsd / g.noCacheTotalCostUsd) * 100 : 0;
+        g.noCacheTotalCostUsd > 0 ? (savedByCacheUsdModel / g.noCacheTotalCostUsd) * 100 : 0;
       const modelE2eTurns = selectE2eSampleTurns(g._turns);
       const e2eOutSum = modelE2eTurns.reduce((a, t) => a + t.outTokens, 0);
       const e2eSecSum = modelE2eTurns.reduce((a, t) => a + t.e2eSec, 0);
@@ -589,6 +693,7 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
         avgTtftSec: avgTtftSecModel,
         inUncachedCostUsd: g.inUncachedCostUsd,
         inCachedCostUsd: g.inCachedCostUsd,
+        cacheWriteCostUsd: g.cacheWriteCostUsd,
         inputCostUsd: g.inputCostUsd,
         thinkCostUsd: g.thinkCostUsd,
         respCostUsd: g.respCostUsd,
@@ -596,16 +701,11 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
         costUsd: g.costUsd,
         costSharePct,
         noCacheTotalCostUsd: g.noCacheTotalCostUsd,
-        savedByCacheUsd: g.savedByCacheUsd,
+        savedByCacheUsd: savedByCacheUsdModel,
         savedByCachePct: savedByCachePctModel,
       };
     })
     .sort((a, b) => b.costUsd - a.costUsd || b.totalTokens - a.totalTokens);
-
-  // Time-weighted session TPS (total tokens / total active seconds) to prevent short-turn ratio skew
-  const validDecodeTurns = turns.filter((t) => !t.interrupted && t.streamSec >= 0.15 && t.outTokens > 0);
-  const validE2eTurns = selectE2eSampleTurns(turns);
-  const ttftTurns = turns.filter((t) => !t.interrupted && t.ttftSec > 0);
 
   const sumDecodeOut = validDecodeTurns.reduce((a, t) => a + t.outTokens, 0);
   const sumDecodeSec = validDecodeTurns.reduce((a, t) => a + t.streamSec, 0);
@@ -619,17 +719,17 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
   const sumVisSec = validVisTurns.reduce((a, t) => a + t.e2eSec, 0);
   const avgVisibleE2eTps = sumVisSec > 0 ? sumVisResp / sumVisSec : 0;
 
-  const peakE2eTps = Math.max(0, ...turns.map((t) => t.e2eTps || 0));
-  const peakDecodeTps = Math.max(0, ...turns.map((t) => t.decodeTps || 0));
+  const peakE2eTps = Math.max(0, ...validE2eTurns.map((t) => t.e2eTps || 0));
+  const peakDecodeTps = Math.max(0, ...validDecodeTurns.map((t) => t.decodeTps || 0));
   const peakTps = peakE2eTps > 0 ? peakE2eTps : peakDecodeTps;
   const avgTtftSec =
     ttftTurns.length > 0
       ? ttftTurns.reduce((a, t) => a + t.ttftSec, 0) / ttftTurns.length
       : 0;
 
-  const contextUsed = lastCtxTurn?.contextUsed || 0;
-  const maxContext = lastCtxTurn?.maxContext || DEFAULT_PHYSICAL_MAX_CONTEXT;
-  const compactionMaxContext = lastCtxTurn?.compactionMaxContext || DEFAULT_COMPACTION_MAX_CONTEXT;
+  const contextUsed = currentTurn?.contextUsed || 0;
+  const maxContext = currentTurn?.maxContext || DEFAULT_PHYSICAL_MAX_CONTEXT;
+  const compactionMaxContext = currentTurn?.compactionMaxContext || DEFAULT_COMPACTION_MAX_CONTEXT;
   const contextUsedPct = maxContext > 0 ? (contextUsed / maxContext) * 100 : 0;
   const compactionUsedPct = compactionMaxContext > 0 ? (contextUsed / compactionMaxContext) * 100 : 0;
 
@@ -652,10 +752,10 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
       compactionMaxContext,
       compactionUsedPct,
       compactionRemaining: Math.max(0, compactionMaxContext - contextUsed),
-      lastCacheHitRate: lastCtxTurn?.cacheHitRate || 0,
-      lastCachedTokens: lastCtxTurn?.inCached || 0,
-      lastUncachedTokens: lastCtxTurn?.inUncached || 0,
-      lastCacheWriteTokens: lastCtxTurn?.cacheWriteTokens || 0,
+      lastCacheHitRate: currentTurn?.cacheHitRate || 0,
+      lastCachedTokens: currentTurn?.inCached || 0,
+      lastUncachedTokens: currentTurn?.inUncached || 0,
+      lastCacheWriteTokens: currentTurn?.cacheWriteTokens || 0,
       sessionCacheHitRate: totalInputTokens > 0 ? (totalInCached / totalInputTokens) * 100 : 0,
       lastDecodeTps: lastPerfTurn?.decodeTps || 0,
       lastE2eTps: lastPerfTurn?.e2eTps || 0,
@@ -666,13 +766,14 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
       peakE2eTps,
       peakDecodeTps,
       peakTps,
-      lastTtftSec: lastOutTurn?.ttftSec || 0,
-      lastStreamSec: lastOutTurn?.streamSec || 0,
-      lastE2eSec: lastOutTurn?.e2eSec || 0,
+      lastTurnInterrupted: Boolean(currentTurn?.interrupted),
+      lastTtftSec: currentTurn?.ttftSec || 0,
+      lastStreamSec: currentTurn?.streamSec || 0,
+      lastE2eSec: currentTurn?.e2eSec || 0,
       avgTtftSec,
-      lastOutTokens: lastOutTurn?.outTokens || 0,
-      lastThinkTokens: lastOutTurn?.thinkTokens || 0,
-      lastRespTokens: lastOutTurn?.respTokens || 0,
+      lastOutTokens: currentTurn?.outTokens || 0,
+      lastThinkTokens: currentTurn?.thinkTokens || 0,
+      lastRespTokens: currentTurn?.respTokens || 0,
       totalInUncached,
       totalInCached,
       totalCacheWriteTokens,
@@ -686,9 +787,10 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
       pricingProfileLabel: pricingProfile.shortLabel,
       pricingProfileFullLabel: pricingProfile.label,
       priceTierThreshold: pricingProfile.tierThreshold || 0,
-      lastTurnCostUsd: lastCtxTurn?.costUsd || 0,
+      lastTurnCostUsd: currentTurn?.costUsd || 0,
       totalInUncachedCostUsd,
       totalInCachedCostUsd,
+      totalCacheWriteCostUsd,
       totalInputCostUsd,
       totalThinkCostUsd,
       totalRespCostUsd,

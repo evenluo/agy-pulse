@@ -73,14 +73,14 @@ When both are available, RPC values win and the transcript fills gaps.
 
 | Metric | Definition |
 | :--- | :--- |
-| Context used | Input tokens of the latest turn (cached + uncached). |
+| Context used | Input tokens of the latest turn (cached + uncached + cache writes). |
 | Auto-compaction limit | Context used ÷ compaction limit (RPC value, else 256,000). Green below 60%, amber to 85%, red above. The 200k tick marks where long-context prices start; it shows only when the current model has such a tier (Gemini 3.1 Pro, Gemini 2.5 Pro). |
 | Model window | Context used ÷ 1,048,576 tokens, the model's full window. |
 | Cache hit rate | Cached input ÷ total input, for the latest turn and for the session. |
 | E2E TPS | Output tokens ÷ (TTFT + streaming time). This is the speed you perceive. |
 | Decode TPS | Output tokens ÷ streaming time. Turns with less than 0.15 s of streaming are skipped as buffered. |
 | Session averages | Total tokens ÷ total seconds over valid turns, so short turns do not skew the result. Interrupted turns (followed by `ERROR_MESSAGE`) are excluded. |
-| Cost | Per turn, with that turn's model: uncached input, cached input, cache writes, and output at list price. For Gemini 3.1 Pro and 2.5 Pro, a turn whose input exceeds 200k uses the high tier. Gemini 4 Argon and Claude 4.6 or later have no such tier; Argon's price doubles for turns from 2026-12-01, and Gemini 3.6–3.8 Flash's from 2027-01-01. "Saved by cache" compares against all input billed as uncached. |
+| Cost | Per turn, with that turn's model: uncached input, cached input, cache writes, and output at list price. For Gemini 3.1 Pro and 2.5 Pro, a turn whose input exceeds 200k uses the high tier. Gemini 4 Argon / Carbon and Claude 4.6 or later have no such tier; Argon / Carbon's price doubles for turns from 2026-12-01, and Gemini 3.6–3.8 Flash's from 2027-01-01. "Saved by cache" compares net session cost against all input billed as uncached. |
 
 Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs). Model names map to a profile by family and version (for example `Claude Sonnet 5.5 (Thinking)`, `claude-opus-4-6`, `gemini-3.8-flash`). Unknown Claude versions use the Sonnet 4.6 or Opus 4.6–5 profile, unknown Flash versions use Gemini 2.5 Flash, and other names use Gemini 3.1 Pro. You can override the mapping from the pricing selector.
 

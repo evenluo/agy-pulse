@@ -190,7 +190,7 @@
       <select id="convSelect" data-i18n-title="convSelectTitle" class="max-w-[145px] truncate"></select>
       <select id="pricingSelect" data-i18n-title="pricingSelectTitle" class="max-w-[175px] truncate">
         <option value="auto" data-i18n="priceAuto">计价：按模型自动</option>
-        <option value="gemini_4_argon">Gemini 4 Argon ($2/$10 → $4/$20)</option>
+        <option value="gemini_4_argon">Gemini 4 Argon / Carbon ($2/$10 → $4/$20)</option>
         <option value="gemini_3_1_pro">Gemini 3.1 Pro ($2/$12)</option>
         <option value="gemini_pro">Gemini 2.5 Pro ($1.25/$10)</option>
         <option value="gemini_3_6_flash">Gemini 3.6–3.8 Flash ($0.75/$3.75 → $1.50/$7.50)</option>
@@ -602,8 +602,8 @@
       });
     }
     function shortModel(m) {
-      const s = String(m || "Gemini").trim();
-      return s.replace(/\s*\(High\)/i, "").replace(/^models\//, "");
+      const s = String(m || "Gemini").trim().replace(/^models\//, "");
+      return s.replace(/\s*\([^()]+\)\s*$/, "").trim() || s;
     }
 
     function renderChart(turns) {
@@ -616,33 +616,41 @@
       const plotW = w - padL - padR;
       const plotH = h - padT - padB;
       const maxCtx = Math.max(1000, ...turns.map(function(t) { return t.contextUsed; }));
-      const maxTps = Math.max(10, ...turns.map(function(t) { return t.e2eTps > 0 ? t.e2eTps : t.decodeTps; }));
+      const measuredTps = [];
+      turns.forEach(function(t, i) {
+        if (t.interrupted || t.stalled) return;
+        const val = t.e2eTps > 0 ? t.e2eTps : t.decodeTps;
+        if (val > 0) measuredTps.push({ i: i, val: val });
+      });
+      const maxTps = Math.max(10, ...measuredTps.map(function(p) { return p.val; }));
       const xAt = function(i) { return turns.length === 1 ? padL + plotW / 2 : padL + (i / (turns.length - 1)) * plotW; };
       const yCtx = function(v) { return padT + plotH - (v / maxCtx) * plotH; };
       const yTps = function(v) { return padT + plotH - (v / maxTps) * plotH; };
 
       const ctxPts = turns.map(function(t, i) { return xAt(i).toFixed(1) + "," + yCtx(t.contextUsed).toFixed(1); }).join(" ");
-      const tpsPts = turns.map(function(t, i) {
-        const val = t.e2eTps > 0 ? t.e2eTps : t.decodeTps;
-        return xAt(i).toFixed(1) + "," + yTps(val).toFixed(1);
+      const tpsPts = measuredTps.map(function(p) {
+        return xAt(p.i).toFixed(1) + "," + yTps(p.val).toFixed(1);
       }).join(" ");
 
       const dotsCtx = turns.map(function(t, i) {
         return "<circle cx=\"" + xAt(i).toFixed(1) + "\" cy=\"" + yCtx(t.contextUsed).toFixed(1) + "\" r=\"2.3\" fill=\"#38bdf8\" />";
       }).join("");
-      const dotsTps = turns.map(function(t, i) {
-        const val = t.e2eTps > 0 ? t.e2eTps : t.decodeTps;
-        return "<circle cx=\"" + xAt(i).toFixed(1) + "\" cy=\"" + yTps(val).toFixed(1) + "\" r=\"2.3\" fill=\"#a78bfa\" />";
+      const dotsTps = measuredTps.map(function(p) {
+        return "<circle cx=\"" + xAt(p.i).toFixed(1) + "\" cy=\"" + yTps(p.val).toFixed(1) + "\" r=\"2.3\" fill=\"#a78bfa\" />";
       }).join("");
+      const tpsAxisLabel = measuredTps.length > 0 ? maxTps.toFixed(0) : "--";
+      const tpsLine = measuredTps.length > 1
+        ? "<polyline fill=\"none\" stroke=\"#a78bfa\" stroke-width=\"2\" stroke-dasharray=\"3,2\" points=\"" + tpsPts + "\" />"
+        : "";
 
       svg.innerHTML =
         "<line x1=\"" + padL + "\" y1=\"" + padT + "\" x2=\"" + (w - padR) + "\" y2=\"" + padT + "\" stroke=\"currentColor\" stroke-opacity=\"0.1\" />" +
         "<line x1=\"" + padL + "\" y1=\"" + (padT + plotH) + "\" x2=\"" + (w - padR) + "\" y2=\"" + (padT + plotH) + "\" stroke=\"currentColor\" stroke-opacity=\"0.2\" />" +
         "<text x=\"" + (padL - 4) + "\" y=\"" + (padT + 8) + "\" text-anchor=\"end\" font-size=\"10\" fill=\"#38bdf8\">" + fmtCompact(maxCtx) + "</text>" +
         "<text x=\"" + (padL - 4) + "\" y=\"" + (padT + plotH) + "\" text-anchor=\"end\" font-size=\"10\" fill=\"currentColor\" opacity=\"0.5\">0</text>" +
-        "<text x=\"" + (w - padR + 4) + "\" y=\"" + (padT + 8) + "\" text-anchor=\"start\" font-size=\"10\" fill=\"#a78bfa\">" + maxTps.toFixed(0) + "</text>" +
+        "<text x=\"" + (w - padR + 4) + "\" y=\"" + (padT + 8) + "\" text-anchor=\"start\" font-size=\"10\" fill=\"#a78bfa\">" + tpsAxisLabel + "</text>" +
         "<polyline fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2\" points=\"" + ctxPts + "\" />" +
-        "<polyline fill=\"none\" stroke=\"#a78bfa\" stroke-width=\"2\" stroke-dasharray=\"3,2\" points=\"" + tpsPts + "\" />" +
+        tpsLine +
         dotsCtx + dotsTps;
     }
 
@@ -770,13 +778,18 @@
       document.getElementById("subTps").textContent = subParts.join(" · ");
       // The last turn with a measurable duration; a transcript's final reply has none.
       const lastTps = lastE2e > 0 ? lastE2e : lastDec;
+      const peakVal = Number(s.peakE2eTps || s.peakTps || 0);
       document.getElementById("lastTps").textContent = tr("lastMeasured", { n: lastTps > 0 ? lastTps.toFixed(1) : "--" });
-      document.getElementById("peakTps").textContent = tr("peak", { n: Number(s.peakE2eTps || s.peakTps || 0).toFixed(1) });
+      document.getElementById("peakTps").textContent = tr("peak", { n: peakVal > 0 ? peakVal.toFixed(1) : "--" });
 
       // Without RPC there is no TTFT and no thinking split; show only what the data has.
-      document.getElementById("ttftVal").textContent = s.lastTtftSec > 0
-        ? tr("ttft", { n: Number(s.lastTtftSec).toFixed(2) })
-        : (s.lastE2eSec > 0 ? tr("totalTime", { n: Number(s.lastE2eSec).toFixed(1) }) : "");
+      const ttftEl = document.getElementById("ttftVal");
+      ttftEl.className = "font-bold tabular-nums " + (s.lastTurnInterrupted ? "text-rose-400" : "text-amber-400");
+      ttftEl.textContent = s.lastTurnInterrupted
+        ? tr("interrupted")
+        : s.lastTtftSec > 0
+          ? tr("ttft", { n: Number(s.lastTtftSec).toFixed(2) })
+          : (s.lastE2eSec > 0 ? tr("totalTime", { n: Number(s.lastE2eSec).toFixed(1) }) : "");
       document.getElementById("outTokens").textContent = tr("outTokens", { n: fmtNum(s.lastOutTokens) });
       const thinkResp = s.lastThinkTokens > 0
         ? tr("thinkResp", { a: fmtCompact(s.lastThinkTokens), b: fmtCompact(s.lastRespTokens) })

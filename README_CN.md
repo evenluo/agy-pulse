@@ -73,14 +73,14 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 
 | 指标 | 定义 |
 | :--- | :--- |
-| Context 占用 | 最新一轮的输入 Token（缓存 + 未缓存）。 |
+| Context 占用 | 最新一轮的输入 Token（缓存 + 未缓存 + 缓存写入）。 |
 | 自动压缩阈值 | Context 占用 ÷ 压缩阈值（优先用 RPC 值，否则 256,000）。低于 60% 为绿色，60%–85% 为黄色，高于 85% 为红色。200k 刻度标记长上下文计价的起点，只在当前模型有该阶梯时显示（Gemini 3.1 Pro、Gemini 2.5 Pro）。 |
 | 模型窗口 | Context 占用 ÷ 1,048,576 Token，即模型的完整窗口。 |
 | 缓存命中率 | 缓存输入 ÷ 总输入，分最新一轮和整个会话。 |
 | E2E TPS | 输出 Token ÷（TTFT + 流式耗时），即体感速度。 |
 | Decode TPS | 输出 Token ÷ 流式耗时。流式耗时低于 0.15 秒的轮次视为整包缓冲，不参与计算。 |
 | 会话均值 | 有效轮次的总 Token ÷ 总秒数，避免短轮次拉偏结果。中断轮次（后接 `ERROR_MESSAGE`）不参与计算。 |
-| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。Gemini 3.1 Pro 和 2.5 Pro 单轮输入超过 200k 时使用高阶梯价。Gemini 4 Argon 和 Claude 4.6 及以后的模型没有该阶梯；Argon 从 2026-12-01 起、Gemini 3.6–3.8 Flash 从 2027-01-01 起的轮次按翻倍后的价格计算。“缓存节省”与全部输入按未缓存计价的结果比较。 |
+| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。Gemini 3.1 Pro 和 2.5 Pro 单轮输入超过 200k 时使用高阶梯价。Gemini 4 Argon / Carbon 和 Claude 4.6 及以后的模型没有该阶梯；Argon / Carbon 从 2026-12-01 起、Gemini 3.6–3.8 Flash 从 2027-01-01 起的轮次按翻倍后的价格计算。“缓存节省”以实际净费用与全部输入按未缓存计价的结果比较。 |
 
 价格表位于 [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs)。模型名按系列和版本映射到价格方案（例如 `Claude Sonnet 5.5 (Thinking)`、`claude-opus-4-6`、`gemini-3.8-flash`）。未知的 Claude 版本使用 Sonnet 4.6 或 Opus 4.6–5 方案，未知的 Flash 版本使用 Gemini 2.5 Flash 方案，其他名称按 Gemini 3.1 Pro 计价。可以在计价下拉框中手动指定。
 
