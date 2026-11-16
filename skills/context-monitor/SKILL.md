@@ -10,41 +10,47 @@ description: >-
 
 # Context & TPS Monitor Skill
 
-This skill helps the user open and manage the **Context & TPS Monitor** UI extension in the Antigravity 2.0 Auxiliary Pane.
+This skill helps the user inspect live conversation metrics, open or toggle the **Context & TPS Monitor** auxiliary pane in Antigravity 2.0, and configure the status line in Antigravity CLI (`agy`).
 
-## Step 1: Check Whether the Sidecar is Enabled
+## 1. Inspect Session Metrics Directly (Desktop or CLI)
 
-Inspect `~/.gemini/config/config.json` (or run `install.mjs --status` if present in this plugin directory) to see which sidecar ID is active:
+When the user asks for current session token usage, auto-compaction headroom, prompt cache hit rate, API list cost, or TTFT/TPS (including inside `agy` CLI where there is no auxiliary side pane), run the bundled read-only CLI summary against the current conversation's transcript in the standard sandbox:
 
-1. **Standalone Sidecar**: `~/.gemini/config/sidecars/context-monitor/sidecar.json`
+```bash
+node "<plugin-root>/sidecars/context-monitor/metrics.mjs" --transcript "<Artifact Directory Path>/.system_generated/logs/transcript.jsonl"
+```
+
+Replace `<plugin-root>` with the directory two levels above this `SKILL.md` (or pass `--json` when structured fields are needed). Summarize the returned numbers concisely.
+
+## 2. Open or Enable the Auxiliary Pane Panel (Desktop)
+
+Determine the active sidecar ID from how this skill/sidecar is installed:
+
+1. **Plugin-Bundled Sidecar**: `<plugin-root>/sidecars/context-monitor/sidecar.json` inside `plugins/<plugin-dir>/`
+   - Sidecar ID: `<plugin-dir>/context-monitor` (use the actual `<plugin-dir>` folder name on disk, never assume `plugin.json`'s `name`)
+   - Pill link: `[Context & TPS](sidecar://<plugin-dir>/context-monitor/)`
+2. **Standalone Sidecar**: `~/.gemini/config/sidecars/context-monitor/sidecar.json`
    - Sidecar ID: `context-monitor`
    - Pill link: `[Context & TPS](sidecar://context-monitor/)`
-2. **Plugin-Bundled Sidecar**: `~/.gemini/config/plugins/<plugin-dir>/sidecars/context-monitor/sidecar.json`
-   - Sidecar ID: `<plugin-dir>/context-monitor` (typically `context-monitor/context-monitor`)
-   - Pill link: `[Context & TPS](sidecar://<plugin-dir>/context-monitor/)`
 
-## Step 2: Auto-Enable if Disabled
+Check `~/.gemini/config/config.json` (read-only) if accessible, or check whether the sidecar is enabled:
 
-Antigravity keeps newly discovered sidecars disabled until they are enabled in `config.json`. If neither entry is enabled, run the installer from the plugin root; it enables the matching sidecar and notifies the Language Server:
+- **When enabled**: Include the matching one-click pill in your reply so the user can toggle the panel immediately:
+  - Plugin mode: `[Context & TPS](sidecar://<plugin-dir>/context-monitor/)`
+  - Standalone mode: `[Context & TPS](sidecar://context-monitor/)`
+- **When disabled**: **Do not** edit `~/.gemini/config/config.json` or call `JetboxWriteState` from `run_command` (mutation RPCs are blocked for agent subprocesses and manual edits risk clobbering concurrent user settings). Instead:
+  - In plugin mode, link directly to the plugin's Customizations page so the user can toggle it on live without restarting: `[Context & TPS Monitor](customization://<plugin-dir>)`
+  - Or instruct the user to run `node "<plugin-root>/install.mjs"` in their own terminal.
 
-```bash
-node install.mjs
-```
+## 3. Enable CLI Status Line (`agy` CLI)
 
-If the installer is not available, enable the standalone sidecar through the Language Server RPC. The CSRF token stays in the environment; do not print it or paste it into the command:
+If the user wants live metrics in the Antigravity CLI footer, instruct them to run one of:
 
-```bash
-: "${ANTIGRAVITY_LS_ADDRESS:=localhost:5387}"
-curl -sS -X POST \
-  "http://${ANTIGRAVITY_LS_ADDRESS}/exa.language_server_pb.LanguageServerService/JetboxWriteState" \
-  -H "Content-Type: application/json" \
-  -H "x-codeium-csrf-token: ${ANTIGRAVITY_CSRF_TOKEN}" \
-  -d '{"userConfig":{"sidecars":{"context-monitor":{"enabled":true}}}}'
-```
-
-## Step 3: Surface the One-Click Pill
-
-In your response to the user, include the clickable `sidecar://` pill matching the active installation mode so the user can toggle the panel in one click:
-
-- Standalone mode: `[Context & TPS](sidecar://context-monitor/)`
-- Plugin mode: `[Context & TPS](sidecar://context-monitor/context-monitor/)`
+- Inside an active `agy` session:
+  ```text
+  /statusline node <plugin-root>/sidecars/context-monitor/statusline.mjs
+  ```
+- Or in their terminal (writes `~/.gemini/antigravity-cli/settings.json` with `stack_with_default: true` while keeping any custom `statusLine` intact):
+  ```bash
+  node "<plugin-root>/install.mjs"
+  ```

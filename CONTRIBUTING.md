@@ -32,9 +32,10 @@ docs/                                README screenshots, rendered from the demo 
 ```bash
 npm test                                         # run all tests (Node.js 20+)
 AGY_GEMINI_ROOT=test/fixtures/demo npm start     # panel with demo data at http://127.0.0.1:18990
+AGY_GEMINI_ROOT=test/fixtures/demo npm run dev   # same, with --watch auto-restart on server edits
 ```
 
-To try changes inside Antigravity, run `node install.mjs` again; the sidecar runs under `node --watch` and restarts when its files change.
+To try changes inside Antigravity, run `node install.mjs` again (the panel reloads `ui/` edits on each refresh, and you can use `npm run dev` during local development).
 
 Add or update tests for behaviour changes. Pure logic belongs in `metrics.mjs` or `pricing.mjs`, where it can be tested without a server.
 

@@ -4,6 +4,12 @@
   "version": "0.3.0",
   "description": "Context window, prompt cache, cost at API list prices, and speed (TTFT, tokens/s) for the current Antigravity conversation.",
   "logo": "assets/logo.svg",
+  "author": "evenluo",
+  "homepage": "https://github.com/evenluo/agy-pulse#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/evenluo/agy-pulse.git"
+  },
   "suggestedPrompts": [
     "Open Context & TPS Monitor panel",
     "打开 Context & TPS 监控面板",

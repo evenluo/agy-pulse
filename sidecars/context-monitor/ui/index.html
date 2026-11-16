@@ -7,15 +7,29 @@
   <script src="/preload.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      color-scheme: dark;
+      --background: #0f172a;
+      --foreground: #f8fafc;
+      --card: rgba(30, 41, 59, 0.75);
+      --border: rgba(148, 163, 184, 0.18);
+      --muted-foreground: #94a3b8;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+    }
     body {
       background: var(--background, #0f172a);
       color: var(--foreground, #f8fafc);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
       margin: 0;
-      padding: 12px;
+      padding: 0;
       -webkit-font-smoothing: antialiased;
       font-size: 12px;
       line-height: 1.45;
+    }
+    .panel-shell {
+      padding: 12px;
     }
     .card {
       background: var(--card, rgba(30, 41, 59, 0.75));
@@ -170,9 +184,19 @@
     .bg-violet-500\/15 { background-color: rgba(139, 92, 246, 0.15); }
     .bg-slate-500\/15 { background-color: rgba(100, 116, 139, 0.15); }
     .bg-slate-500\/20 { background-color: rgba(100, 116, 139, 0.2); }
+    :root[data-theme="light"] .subcard { background: rgba(15, 23, 42, 0.035); }
+    :root[data-theme="light"] .text-emerald-400 { color: #059669; }
+    :root[data-theme="light"] .text-sky-400 { color: #0284c7; }
+    :root[data-theme="light"] .text-amber-400,
+    :root[data-theme="light"] .text-amber-400\/90 { color: #b45309; }
+    :root[data-theme="light"] .text-rose-400 { color: #e11d48; }
+    :root[data-theme="light"] .text-violet-400,
+    :root[data-theme="light"] .text-violet-300 { color: #6d28d9; }
+    :root[data-theme="light"] button:hover { border-color: rgba(2, 132, 199, 0.5); }
   </style>
 </head>
-<body class="antialiased space-y-2.5 text-xs max-w-5xl mx-auto">
+<body class="antialiased">
+  <div class="panel-shell space-y-2.5 text-xs max-w-5xl mx-auto">
 
   <!-- Header: model, data source, conversation, controls -->
   <div class="card flex flex-wrap items-center justify-between gap-2 py-2.5">
@@ -191,6 +215,7 @@
       <select id="pricingSelect" data-i18n-title="pricingSelectTitle" class="max-w-[175px] truncate">
         <option value="auto" data-i18n="priceAuto">计价：按模型自动</option>
         <option value="gemini_4_argon">Gemini 4 Argon / Carbon ($2/$10 → $4/$20)</option>
+        <option value="gemini_4_hydrogen">Gemini 4 Hydrogen ($1.50/$7.50)</option>
         <option value="gemini_3_1_pro">Gemini 3.1 Pro ($2/$12)</option>
         <option value="gemini_pro">Gemini 2.5 Pro ($1.25/$10)</option>
         <option value="gemini_3_6_flash">Gemini 3.6–3.8 Flash ($0.75/$3.75 → $1.50/$7.50)</option>
@@ -362,6 +387,7 @@
         <tbody id="turnTableBody"></tbody>
       </table>
     </div>
+  </div>
   </div>
   <script>
     // Every visible label lives here. "{name}" placeholders are filled by tr(key, vars).
@@ -549,14 +575,38 @@
     }
 
     const params = new URLSearchParams(window.location.search);
-    const urlConvId = params.get("conversationId") || "";
-    let selectedConvId = urlConvId;
+    const hostConvId = (window.sidecar && window.sidecar.conversationId) || params.get("conversationId") || "";
+    let selectedConvId = hostConvId;
+    let lastEtag = "";
     let lastMetricsData = null;
     const convSelect = document.getElementById("convSelect");
     const pricingSelect = document.getElementById("pricingSelect");
     const autoFollow = document.getElementById("autoFollow");
     const langToggle = document.getElementById("langToggle");
-    if (urlConvId) autoFollow.checked = false;
+    if (hostConvId) autoFollow.checked = false;
+
+    function syncThemeScheme() {
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;color:var(--background, #0f172a)";
+      document.documentElement.appendChild(probe);
+      const c = getComputedStyle(probe).color;
+      probe.remove();
+      const nums = (c.match(/[\d.]+/g) || []).map(Number);
+      if (nums.length < 3) return;
+      const scale = c.startsWith("color(") ? 1 : 255;
+      const rgb = nums.slice(0, 3).map(function(v) { return v / scale; });
+      const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+      const nextTheme = lum < 0.5 ? "dark" : "light";
+      if (document.documentElement.dataset.theme !== nextTheme) {
+        document.documentElement.dataset.theme = nextTheme;
+        if (lastMetricsData) renderChart(lastMetricsData.turns || []);
+      }
+    }
+    syncThemeScheme();
+    new MutationObserver(syncThemeScheme).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["style"]
+    });
 
     langToggle.addEventListener("click", function() {
       currentLang = currentLang === "zh" ? "en" : "zh";
@@ -569,16 +619,21 @@
     convSelect.addEventListener("change", function() {
       selectedConvId = convSelect.value;
       autoFollow.checked = false;
+      lastEtag = "";
       fetchAndRender();
     });
     pricingSelect.addEventListener("change", function() {
+      lastEtag = "";
       fetchAndRender();
     });
     autoFollow.addEventListener("change", function() {
+      lastEtag = "";
       if (autoFollow.checked) {
         selectedConvId = "";
-        fetchAndRender();
+      } else if (!selectedConvId) {
+        selectedConvId = convSelect.value || hostConvId || "";
       }
+      fetchAndRender();
     });
 
     function fmtNum(n) {
@@ -601,9 +656,10 @@
         return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c];
       });
     }
+    const EFFORT_TAIL_RE = /\s*\((?:minimal|low|medium|med|high|max|xhigh|thinking|fast|standard|none|auto)\)\s*$/i;
     function shortModel(m) {
       const s = String(m || "Gemini").trim().replace(/^models\//, "");
-      return s.replace(/\s*\([^()]+\)\s*$/, "").trim() || s;
+      return s.replace(EFFORT_TAIL_RE, "").trim() || s;
     }
 
     function renderChart(turns) {
@@ -612,6 +668,9 @@
         svg.innerHTML = "<text x=\"200\" y=\"52\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.4\">" + tr("noTurns") + "</text>";
         return;
       }
+      const isLight = document.documentElement.dataset.theme === "light";
+      const ctxStroke = isLight ? "#0284c7" : "#38bdf8";
+      const tpsStroke = isLight ? "#6d28d9" : "#a78bfa";
       const w = 400, h = 92, padL = 34, padR = 32, padT = 8, padB = 16;
       const plotW = w - padL - padR;
       const plotH = h - padT - padB;
@@ -633,23 +692,23 @@
       }).join(" ");
 
       const dotsCtx = turns.map(function(t, i) {
-        return "<circle cx=\"" + xAt(i).toFixed(1) + "\" cy=\"" + yCtx(t.contextUsed).toFixed(1) + "\" r=\"2.3\" fill=\"#38bdf8\" />";
+        return "<circle cx=\"" + xAt(i).toFixed(1) + "\" cy=\"" + yCtx(t.contextUsed).toFixed(1) + "\" r=\"2.3\" fill=\"" + ctxStroke + "\" />";
       }).join("");
       const dotsTps = measuredTps.map(function(p) {
-        return "<circle cx=\"" + xAt(p.i).toFixed(1) + "\" cy=\"" + yTps(p.val).toFixed(1) + "\" r=\"2.3\" fill=\"#a78bfa\" />";
+        return "<circle cx=\"" + xAt(p.i).toFixed(1) + "\" cy=\"" + yTps(p.val).toFixed(1) + "\" r=\"2.3\" fill=\"" + tpsStroke + "\" />";
       }).join("");
       const tpsAxisLabel = measuredTps.length > 0 ? maxTps.toFixed(0) : "--";
       const tpsLine = measuredTps.length > 1
-        ? "<polyline fill=\"none\" stroke=\"#a78bfa\" stroke-width=\"2\" stroke-dasharray=\"3,2\" points=\"" + tpsPts + "\" />"
+        ? "<polyline fill=\"none\" stroke=\"" + tpsStroke + "\" stroke-width=\"2\" stroke-dasharray=\"3,2\" points=\"" + tpsPts + "\" />"
         : "";
 
       svg.innerHTML =
         "<line x1=\"" + padL + "\" y1=\"" + padT + "\" x2=\"" + (w - padR) + "\" y2=\"" + padT + "\" stroke=\"currentColor\" stroke-opacity=\"0.1\" />" +
         "<line x1=\"" + padL + "\" y1=\"" + (padT + plotH) + "\" x2=\"" + (w - padR) + "\" y2=\"" + (padT + plotH) + "\" stroke=\"currentColor\" stroke-opacity=\"0.2\" />" +
-        "<text x=\"" + (padL - 4) + "\" y=\"" + (padT + 8) + "\" text-anchor=\"end\" font-size=\"10\" fill=\"#38bdf8\">" + fmtCompact(maxCtx) + "</text>" +
+        "<text x=\"" + (padL - 4) + "\" y=\"" + (padT + 8) + "\" text-anchor=\"end\" font-size=\"10\" fill=\"" + ctxStroke + "\">" + fmtCompact(maxCtx) + "</text>" +
         "<text x=\"" + (padL - 4) + "\" y=\"" + (padT + plotH) + "\" text-anchor=\"end\" font-size=\"10\" fill=\"currentColor\" opacity=\"0.5\">0</text>" +
-        "<text x=\"" + (w - padR + 4) + "\" y=\"" + (padT + 8) + "\" text-anchor=\"start\" font-size=\"10\" fill=\"#a78bfa\">" + tpsAxisLabel + "</text>" +
-        "<polyline fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2\" points=\"" + ctxPts + "\" />" +
+        "<text x=\"" + (w - padR + 4) + "\" y=\"" + (padT + 8) + "\" text-anchor=\"start\" font-size=\"10\" fill=\"" + tpsStroke + "\">" + tpsAxisLabel + "</text>" +
+        "<polyline fill=\"none\" stroke=\"" + ctxStroke + "\" stroke-width=\"2\" points=\"" + ctxPts + "\" />" +
         tpsLine +
         dotsCtx + dotsTps;
     }
@@ -865,11 +924,22 @@
     async function fetchAndRender() {
       try {
         const q = new URLSearchParams();
-        if (!autoFollow.checked && selectedConvId) q.set("conversationId", selectedConvId);
+        if (autoFollow.checked) {
+          if (hostConvId) q.set("followLatest", "1");
+        } else if (selectedConvId) {
+          q.set("conversationId", selectedConvId);
+        }
         if (pricingSelect && pricingSelect.value) q.set("pricing", pricingSelect.value);
-        const res = await fetch("/api/metrics?" + q.toString());
+        if (lastEtag) q.set("etag", lastEtag);
+        const f = (window.sidecar && window.sidecar.fetch) ? window.sidecar.fetch.bind(window.sidecar) : fetch;
+        const res = await f("/api/metrics?" + q.toString());
         if (!res.ok) return;
         const data = await res.json();
+        if (data.unchanged) {
+          document.getElementById("updatedTime").textContent = new Date().toLocaleTimeString();
+          return;
+        }
+        lastEtag = data.etag || "";
         lastMetricsData = data;
         renderData(data);
       } catch (e) {

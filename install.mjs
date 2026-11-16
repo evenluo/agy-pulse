@@ -310,7 +310,6 @@ Options:
       'package.json',
       'install.mjs',
       'assets',
-      'docs',
       'sidecars',
       'skills',
       'README.md',

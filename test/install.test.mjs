@@ -76,6 +76,12 @@ describe('Installer CLI (install.mjs)', () => {
     assert.equal(cfg.sidecars['context-monitor/context-monitor'].enabled, true);
     assert.equal(cfg.sidecars['context-monitor'].enabled, false);
 
+    const pluginDir = join(tmpConfigDir, 'plugins', 'context-monitor');
+    assert.ok(existsSync(join(pluginDir, 'plugin.json')));
+    assert.ok(existsSync(join(pluginDir, 'sidecars', 'context-monitor', 'server.mjs')));
+    assert.ok(existsSync(join(pluginDir, 'skills', 'context-monitor', 'SKILL.md')));
+    assert.equal(existsSync(join(pluginDir, 'docs')), false);
+
     const st = await runCli(['--status', '--config-dir', tmpConfigDir, '--quiet']);
     assert.equal(st.status.pluginInstalled, true);
     assert.equal(st.status.pluginSidecarEnabled, true);

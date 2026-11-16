@@ -44,10 +44,14 @@ describe('Offline UI & HTTP Server', () => {
     assert.doesNotMatch(HTML_PAGE, /@import|url\(\s*["']?https?:/i);
     assert.ok(HTML_PAGE.includes('id="langToggle"'));
     assert.ok(HTML_PAGE.includes('const I18N ='));
-    assert.ok(readUi('preload.js').includes('theme-change'));
+    assert.ok(HTML_PAGE.includes('dataset.theme'));
+    assert.ok(HTML_PAGE.includes('window.sidecar'));
+    const preload = readUi('preload.js');
+    assert.ok(preload.includes('theme-change'));
+    assert.ok(preload.includes('window.sidecar'));
   });
 
-  it('serves /, /preload.js, /api/metrics, and 404', async () => {
+  it('serves /, /preload.js, /api/metrics (with etag), and 404', async () => {
     const html = await fetch(`${baseUrl}/`);
     assert.equal(html.status, 200);
     assert.match(html.headers.get('content-type'), /text\/html/);
@@ -60,8 +64,19 @@ describe('Offline UI & HTTP Server', () => {
     const api = await fetch(`${baseUrl}/api/metrics`);
     assert.equal(api.status, 200);
     const json = await api.json();
+    assert.equal(typeof json.etag, 'string');
+    assert.ok(json.etag.length > 0);
     assert.equal(json.summary.turnCount, 0);
     assert.deepEqual(json.recentConversations, []);
+
+    const unchangedRes = await fetch(`${baseUrl}/api/metrics?etag=${encodeURIComponent(json.etag)}`);
+    assert.equal(unchangedRes.status, 200);
+    const unchangedJson = await unchangedRes.json();
+    assert.deepEqual(unchangedJson, {
+      unchanged: true,
+      etag: json.etag,
+      conversationId: json.conversationId,
+    });
 
     const missing = await fetch(`${baseUrl}/unknown-route`);
     assert.equal(missing.status, 404);

@@ -9,6 +9,7 @@
   "scripts": {
     "test": "node --test",
     "start": "node sidecars/context-monitor/server.mjs",
+    "dev": "node --watch sidecars/context-monitor/server.mjs",
     "setup": "node install.mjs",
     "status": "node install.mjs --status",
     "uninstall-sidecar": "node install.mjs --uninstall"

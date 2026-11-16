@@ -4,8 +4,22 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Pricing profile for Gemini 4 Hydrogen (`$1.50` / `$0.075` cached / `$7.50` per 1M tokens) in `pricing.mjs` and the UI pricing selector.
+- Dual-mode `server.mjs`: integrates with Antigravity's native `sidecar_sdk` (`SidecarApp`) when launched by the host while keeping the zero-dependency standalone `node:http` server for `npm start` and tests, enforcing loopback `Host` validation in both modes.
+- Panel integration with `window.sidecar.conversationId` and `window.sidecar.fetch`, `etag`-based polling with `(mtimeMs, size)` transcript caching, host surface prioritization (`ANTIGRAVITY_EXECUTABLE_DATA_DIR`), and light/dark theme contrast adaptation (`data-theme`).
+- Read-only CLI summary mode in `metrics.mjs` (`--transcript`, `--conversation`, `--json`), `worktree.branch` and `~/...` `transcript_path` support in `statusline.mjs`, and `author`/`homepage`/`repository` metadata in `plugin.json`.
+
+### Changed
+
+- Removed `--watch` from production `sidecar.json` args (added `npm run dev` for local watch mode) and added `agent_permissions.allows_user_interactions: false`.
+- Updated `skills/context-monitor/SKILL.md` to use read-only CLI inspection, `sidecar://` pills, and `customization://<dir>` links instead of calling restricted `JetboxWriteState` or editing `config.json` from agent subprocesses.
+- Excluded `docs/` screenshots from `--plugin` installs in `install.mjs` and skipped non-effort parenthetical model suffixes (such as `Orchestrator (Carbon)`) when splitting effort levels.
+
 ### Fixed
 
+- Precedence in `resolvePricingProfileKey` and `metrics.mjs` so Gemini 4 models paired with internal worker route IDs (such as `Gemini 4 Hydrogen (Orchestrator)` with `gemini-flash-worker-agy`) no longer fall back to Gemini 2.5 Flash pricing.
 - Average, peak, and last-measured speed filter transcript stalls per model against each model's upper-quartile rate instead of a session-wide median, skip 1-second timestamp rounding spikes when longer turns exist, and omit unmeasured or stalled turns from the trend line instead of plotting them at 0 tok/s.
 - RPC turns that fall back to transcript timestamps now go through the same stall and short-turn filters as transcript turns, turns over three minutes (up to ten) keep their measured speed, and earlier transcript turns stay in the session when the Language Server only reports metadata for recent turns.
 - Turn, per-model, and session cache hit rates include cache write tokens in total input, and session/per-model cache savings subtract cache write premiums from total savings so `cost + saved` matches uncached cost.

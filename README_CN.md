@@ -53,12 +53,12 @@ node install.mjs --help
 ## 使用
 
 1. 首次安装后重启 Antigravity（或打开新窗口），使其发现 Sidecar。
-2. 打开辅助栏，选择 **Context & TPS**。也可以让 Agent “打开 Context & TPS 监控面板”；安装插件包后，Agent 会回复一个 `[Context & TPS](sidecar://...)` 链接。
+2. 打开辅助栏，选择 **Context & TPS**。在 Antigravity 内运行时，面板会通过 `window.sidecar` 自动绑定当前对话并跟随宿主的浅色/深色主题。也可以让 Agent “打开 Context & TPS 监控面板”（生成 `[Context & TPS](sidecar://...)` 按钮），或直接运行 `node sidecars/context-monitor/metrics.mjs --transcript <path>` 读取当前对话指标。
 3. 用顶部控件跟随最新对话或选择其他对话、切换计价方案、切换中英文。
 
 ## 工作原理
 
-Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。服务只监听 `127.0.0.1`，提供面板页面和 JSON 接口 `/api/metrics`。面板可见时每 2 秒轮询一次该接口。
+Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。在 Antigravity 内通过 `sidecar_sdk` 启动时，服务以原生 `SidecarApp` 模式运行并复用宿主注入的 `/preload.js` 桥接脚本；独立启动（`npm start` 或 `npm run dev`）时则自动回退到内置的零依赖 `127.0.0.1` HTTP 服务并挂载兜底版 `ui/preload.js`。面板可见时每 2 秒带 `etag` 轮询 `/api/metrics`，数据未变化时跳过界面重绘。
 
 指标来自两个数据源：
 
@@ -80,7 +80,7 @@ Antigravity 按 `sidecar.json` 启动 `sidecars/context-monitor/server.mjs`。�
 | E2E TPS | 输出 Token ÷（TTFT + 流式耗时），即体感速度。 |
 | Decode TPS | 输出 Token ÷ 流式耗时。流式耗时低于 0.15 秒的轮次视为整包缓冲，不参与计算。 |
 | 会话均值 | 有效轮次的总 Token ÷ 总秒数，避免短轮次拉偏结果。中断轮次（后接 `ERROR_MESSAGE`）不参与计算。 |
-| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。Gemini 3.1 Pro 和 2.5 Pro 单轮输入超过 200k 时使用高阶梯价。Gemini 4 Argon / Carbon 和 Claude 4.6 及以后的模型没有该阶梯；Argon / Carbon 从 2026-12-01 起、Gemini 3.6–3.8 Flash 从 2027-01-01 起的轮次按翻倍后的价格计算。“缓存节省”以实际净费用与全部输入按未缓存计价的结果比较。 |
+| 费用 | 按每轮实际模型，分别以标价计算未缓存输入、缓存输入、缓存写入和输出。Gemini 3.1 Pro 和 2.5 Pro 单轮输入超过 200k 时使用高阶梯价。Gemini 4（Argon / Carbon / Hydrogen）和 Claude 4.6 及以后的模型没有该阶梯；Argon / Carbon 从 2026-12-01 起、Gemini 3.6–3.8 Flash 从 2027-01-01 起的轮次按翻倍后的价格计算。“缓存节省”以实际净费用与全部输入按未缓存计价的结果比较。 |
 
 价格表位于 [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs)。模型名按系列和版本映射到价格方案（例如 `Claude Sonnet 5.5 (Thinking)`、`claude-opus-4-6`、`gemini-3.8-flash`）。未知的 Claude 版本使用 Sonnet 4.6 或 Opus 4.6–5 方案，未知的 Flash 版本使用 Gemini 2.5 Flash 方案，其他名称按 Gemini 3.1 Pro 计价。可以在计价下拉框中手动指定。
 

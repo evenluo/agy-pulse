@@ -18,6 +18,11 @@ export const PRICING_PROFILES = {
       base: { inUncached: 4.0, inCached: 0.2, cacheWrite: 4.0, out: 20.0 },
     },
   },
+  gemini_4_hydrogen: {
+    label: 'Gemini 4 Hydrogen ($1.50/$0.075/$7.50)',
+    shortLabel: 'Gemini 4 Hydrogen',
+    base: { inUncached: 1.5, inCached: 0.075, cacheWrite: 1.5, out: 7.5 },
+  },
   gemini_3_1_pro: {
     label: 'Gemini 3.1 Pro ($2/$0.2/$12 · >200k $4/$18)',
     shortLabel: 'Gemini 3.1 Pro',
@@ -98,13 +103,14 @@ export function resolvePricingProfileKey(modelName, requestedProfile) {
   if (m.includes('claude') || m.includes('sonnet')) {
     return versionOf(m, 'sonnet') === '5.5' ? 'claude_sonnet_5_5' : 'claude_sonnet';
   }
-  if (m.includes('flash')) {
+  if (m.includes('hydrogen')) return 'gemini_4_hydrogen';
+  if (m.includes('argon') || m.includes('carbon') || m.includes('gemini 4') || m.includes('gemini-4')) {
+    return 'gemini_4_argon';
+  }
+  if (m.includes('flash') && !m.includes(' pro')) {
     const v = versionOf(m, 'flash');
     if (v === '3.6' || v === '3.7' || v === '3.8') return 'gemini_3_6_flash';
     return v === '3' ? 'gemini_3_flash' : 'gemini_flash';
-  }
-  if (m.includes('argon') || m.includes('carbon') || m.includes('gemini 4') || m.includes('gemini-4')) {
-    return 'gemini_4_argon';
   }
   if (m.includes('2.5')) return 'gemini_pro';
   return 'gemini_3_1_pro';

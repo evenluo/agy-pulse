@@ -16,6 +16,8 @@ export function fmtCompact(n) {
   return `${Math.trunc(v)}`;
 }
 
+const EFFORT_RE = /^(?:minimal|low|medium|med|high|max|xhigh|thinking|fast|standard|none|auto)$/i;
+
 export function splitModelAndEffort(rawModel, explicitEffort = '') {
   let s = String(rawModel || '').trim();
   if (s.startsWith('models/')) {
@@ -25,8 +27,10 @@ export function splitModelAndEffort(rawModel, explicitEffort = '') {
   const m = s.match(/\(([^()]+)\)\s*$/);
   if (m) {
     const inParens = m[1].trim();
-    s = s.slice(0, m.index).trim();
-    if (!effort) effort = inParens;
+    if (EFFORT_RE.test(inParens)) {
+      s = s.slice(0, m.index).trim();
+      if (!effort) effort = inParens;
+    }
   }
   return { model: s || 'Gemini', effort };
 }
@@ -36,6 +40,11 @@ export function resolveGitBranch(data, fallbackCwd = process.cwd()) {
   if (vcs && typeof vcs === 'object' && !Array.isArray(vcs)) {
     const b = String(vcs.branch || '').trim();
     if (b) return { branch: b, dirty: Boolean(vcs.dirty) };
+  }
+  const wt = data?.worktree;
+  if (wt && typeof wt === 'object' && !Array.isArray(wt)) {
+    const b = String(wt.branch || '').trim();
+    if (b) return { branch: b, dirty: Boolean(wt.dirty) };
   }
   const ws = data?.workspace;
   let startDir = '';
@@ -113,13 +122,19 @@ function readSettingsModel(settingsPath = defaultCliSettingsPath()) {
 }
 
 function normalizeTranscriptPath(rawPath) {
-  const s = String(rawPath || '').trim();
-  if (!s.startsWith('file://')) return s;
-  try {
-    return fileURLToPath(s);
-  } catch {
-    return s.replace(/^file:\/\//, '');
+  let s = String(rawPath || '').trim();
+  if (s.startsWith('file://')) {
+    try {
+      s = fileURLToPath(s);
+    } catch {
+      s = s.replace(/^file:\/\//, '');
+    }
   }
+  if (s === '~' || s.startsWith('~/') || s.startsWith('~\\')) {
+    const home = process.env.HOME || process.env.USERPROFILE || homedir();
+    return s === '~' ? home : join(home, s.slice(2));
+  }
+  return s;
 }
 
 export async function formatStatusLine(data, options = {}) {
@@ -149,6 +164,8 @@ export async function formatStatusLine(data, options = {}) {
       metrics = await getConversationMetrics(hasConvId ? convId : '', 'auto', {
         transcriptPath: rawTranscriptPath,
         fallbackModel,
+        includeRecent: false,
+        rpcTimeoutMs: 400,
       });
     }
   }

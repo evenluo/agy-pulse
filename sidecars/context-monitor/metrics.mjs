@@ -7,12 +7,75 @@
 // 2. Local transcripts at ~/.gemini/antigravity*/brain/<id>/.system_generated/logs/transcript.jsonl:
 //    token usage, model switches and checkpoints; durations are estimated from step timestamps.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PRICING_PROFILES, computeTurnCost, resolvePricingProfileKey } from './pricing.mjs';
 
 const APP_DIRS = ['antigravity', 'antigravity-ide', 'antigravity-cli'];
+const TRANSCRIPT_CACHE_MAX = 64;
+const transcriptCache = new Map();
+
+function realPath(p) {
+  return existsSync(p) ? realpathSync(p) : resolve(p);
+}
+
+// Resolve the host's own ~/.gemini/<surface> dir when Antigravity runs this
+// sidecar, disabled under AGY_GEMINI_ROOT so tests and demo runs stay isolated.
+function resolveHostAppDataDir() {
+  if (process.env.AGY_GEMINI_ROOT) return '';
+  const execDataDir = process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+  if (execDataDir) {
+    for (let d = execDataDir; d !== dirname(d); d = dirname(d)) {
+      if (basename(d) !== 'sidecar_data') continue;
+      const appData = dirname(d);
+      if (existsSync(join(appData, 'brain'))) return appData;
+    }
+  }
+  const appDataDir = process.env.ANTIGRAVITY_APP_DATA_DIR;
+  if (appDataDir && existsSync(join(appDataDir, 'brain'))) return appDataDir;
+  return '';
+}
+
+function candidateBrainDirs() {
+  const geminiRoot = process.env.AGY_GEMINI_ROOT || join(homedir(), '.gemini');
+  const hostAppDataDir = resolveHostAppDataDir();
+  const hostReal = hostAppDataDir ? realPath(hostAppDataDir) : '';
+  const seenBrain = new Set();
+  const candidates = [];
+
+  for (const appDir of APP_DIRS) {
+    const appPath = join(geminiRoot, appDir);
+    const brainDir = join(appPath, 'brain');
+    if (!existsSync(brainDir)) continue;
+    const brainReal = realPath(brainDir);
+    if (seenBrain.has(brainReal)) continue;
+    seenBrain.add(brainReal);
+    candidates.push({
+      surface: appDir,
+      brainDir,
+      isHostSurface: Boolean(hostReal && realPath(appPath) === hostReal),
+    });
+  }
+
+  if (hostAppDataDir) {
+    const brainDir = join(hostAppDataDir, 'brain');
+    if (existsSync(brainDir)) {
+      const brainReal = realPath(brainDir);
+      if (!seenBrain.has(brainReal)) {
+        seenBrain.add(brainReal);
+        candidates.unshift({
+          surface: basename(hostAppDataDir),
+          brainDir,
+          isHostSurface: true,
+        });
+      }
+    }
+  }
+
+  return candidates;
+}
 const DEFAULT_PHYSICAL_MAX_CONTEXT = 1048576; // 1M physical window for Gemini 3 / 4
 // Used when the RPC reports no limit. Google does not document the threshold;
 // community measurements put it at about 256k tokens on Gemini 3.8 Flash
@@ -36,12 +99,12 @@ export function parseDurationSec(dur) {
   return parseFloat(s) || 0;
 }
 
-async function callLsRpc(method, body) {
+async function callLsRpc(method, body, timeoutMs = 2500) {
   const lsAddr = process.env.ANTIGRAVITY_LS_ADDRESS || '';
   const csrfToken = process.env.ANTIGRAVITY_CSRF_TOKEN || '';
   if (!lsAddr || !csrfToken) return null;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2500);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(
       `http://${lsAddr}/exa.language_server_pb.LanguageServerService/${method}`,
@@ -65,12 +128,9 @@ async function callLsRpc(method, body) {
 }
 
 export function discoverLocalTranscripts() {
-  const geminiRoot = process.env.AGY_GEMINI_ROOT || join(homedir(), '.gemini');
   const items = [];
 
-  for (const appDir of APP_DIRS) {
-    const brainDir = join(geminiRoot, appDir, 'brain');
-    if (!existsSync(brainDir)) continue;
+  for (const { surface, brainDir, isHostSurface } of candidateBrainDirs()) {
     let convDirs = [];
     try {
       convDirs = readdirSync(brainDir, { withFileTypes: true });
@@ -91,9 +151,11 @@ export function discoverLocalTranscripts() {
         const st = statSync(transcriptPath);
         items.push({
           conversationId: d.name,
-          surface: appDir,
+          surface,
           transcriptPath,
           mtimeMs: st.mtimeMs,
+          size: st.size,
+          isHostSurface,
           updatedAt: st.mtime.toISOString(),
         });
       } catch {
@@ -106,15 +168,38 @@ export function discoverLocalTranscripts() {
   return items;
 }
 
-export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
-  if (!transcriptPath || !existsSync(transcriptPath)) {
-    return { turns: [], firstUserPrompt: '', modelHint: '', detectedModel: '', checkpointCount: 0 };
+function findTranscriptById(convId) {
+  if (!convId) return null;
+  const candidates = candidateBrainDirs().sort(
+    (a, b) => Number(b.isHostSurface) - Number(a.isHostSurface)
+  );
+  for (const { surface, brainDir, isHostSurface } of candidates) {
+    const transcriptPath = join(brainDir, convId, '.system_generated', 'logs', 'transcript.jsonl');
+    if (!existsSync(transcriptPath)) continue;
+    try {
+      const st = statSync(transcriptPath);
+      return {
+        conversationId: convId,
+        surface,
+        transcriptPath,
+        mtimeMs: st.mtimeMs,
+        size: st.size,
+        isHostSurface,
+        updatedAt: st.mtime.toISOString(),
+      };
+    } catch {
+      // ignore unreadable entry
+    }
   }
+  return null;
+}
+
+function parseTranscriptRaw(transcriptPath) {
   let raw = '';
   try {
     raw = readFileSync(transcriptPath, 'utf-8');
   } catch {
-    return { turns: [], firstUserPrompt: '', modelHint: '', detectedModel: '', checkpointCount: 0 };
+    return null;
   }
 
   const lines = raw.split('\n').filter((l) => l.trim().length > 0);
@@ -132,7 +217,7 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
   let modelHint = '';
   let currentModel = '';
   let checkpointCount = 0;
-  const turns = [];
+  const rawTurns = [];
 
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
@@ -154,7 +239,7 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
           const fromModel = mmFull[1].trim();
           const toModel = mmFull[2].trim();
           if (!currentModel && fromModel && fromModel !== 'None') {
-            for (const prevTurn of turns) {
+            for (const prevTurn of rawTurns) {
               if (!prevTurn.model) {
                 prevTurn.model = fromModel;
                 prevTurn.modelId = fromModel;
@@ -204,8 +289,8 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
       }
 
       const explicitModel = currentModel || stepModelId || '';
-      turns.push({
-        turn: turns.length + 1,
+      rawTurns.push({
+        turn: rawTurns.length + 1,
         stepIndex: s.step_index ?? i,
         hasStepIndex: s.step_index !== undefined && s.step_index !== null,
         createdAt: s.created_at || null,
@@ -237,15 +322,59 @@ export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
     }
   }
 
-  const detectedModel = currentModel || modelHint || '';
-  const fallbackModel = detectedModel || fallbackModelName || 'Gemini 3.1 Pro (High)';
-  for (const t of turns) {
+  return {
+    rawTurns,
+    firstUserPrompt,
+    detectedModel: currentModel || modelHint || '',
+    checkpointCount,
+  };
+}
+
+export function parseTranscriptMetrics(transcriptPath, fallbackModelName) {
+  if (!transcriptPath || !existsSync(transcriptPath)) {
+    return { turns: [], firstUserPrompt: '', modelHint: '', detectedModel: '', checkpointCount: 0 };
+  }
+  let st;
+  try {
+    st = statSync(transcriptPath);
+  } catch {
+    return { turns: [], firstUserPrompt: '', modelHint: '', detectedModel: '', checkpointCount: 0 };
+  }
+
+  const cacheKey = `${st.mtimeMs}:${st.size}`;
+  let cached = transcriptCache.get(transcriptPath);
+  if (cached && cached.key === cacheKey) {
+    // Refresh insertion order for LRU eviction.
+    transcriptCache.delete(transcriptPath);
+    transcriptCache.set(transcriptPath, cached);
+  } else {
+    const parsed = parseTranscriptRaw(transcriptPath);
+    if (!parsed) {
+      return { turns: [], firstUserPrompt: '', modelHint: '', detectedModel: '', checkpointCount: 0 };
+    }
+    if (transcriptCache.size >= TRANSCRIPT_CACHE_MAX) {
+      transcriptCache.delete(transcriptCache.keys().next().value);
+    }
+    cached = { key: cacheKey, ...parsed };
+    transcriptCache.set(transcriptPath, cached);
+  }
+
+  const fallbackModel = cached.detectedModel || fallbackModelName || 'Gemini 3.1 Pro (High)';
+  const turns = cached.rawTurns.map((raw) => {
+    const t = { ...raw };
     if (t.model) t.hasExplicitModel = true;
     if (!t.model) t.model = fallbackModel;
     if (!t.modelId) t.modelId = t.model;
-  }
+    return t;
+  });
 
-  return { turns, firstUserPrompt, modelHint: fallbackModel, detectedModel, checkpointCount };
+  return {
+    turns,
+    firstUserPrompt: cached.firstUserPrompt,
+    modelHint: fallbackModel,
+    detectedModel: cached.detectedModel,
+    checkpointCount: cached.checkpointCount,
+  };
 }
 
 function quantile(values, q) {
@@ -317,32 +446,52 @@ function selectE2eSampleTurns(turns) {
 }
 
 export async function getConversationMetrics(requestedConvId, requestedPricing, options = {}) {
+  const includeRecent = options.includeRecent !== false;
+  const rpcTimeoutMs = Number(options.rpcTimeoutMs) || 2500;
   const explicitPath =
     options.transcriptPath && existsSync(options.transcriptPath) ? options.transcriptPath : '';
-  const localList = explicitPath ? [] : discoverLocalTranscripts();
-  // A requested conversation without a local transcript still gets RPC data;
-  // it never falls back to another conversation's transcript.
-  const targetEntry = explicitPath
-    ? {
-        conversationId: requestedConvId || '',
-        surface: 'antigravity-cli',
-        transcriptPath: explicitPath,
-        mtimeMs: 0,
-        updatedAt: new Date().toISOString(),
-      }
-    : requestedConvId
-      ? localList.find((x) => x.conversationId === requestedConvId) || null
-      : localList[0] || null;
+  const localList =
+    explicitPath || (!includeRecent && requestedConvId) ? [] : discoverLocalTranscripts();
+
+  let targetEntry = null;
+  if (explicitPath) {
+    let st = null;
+    try {
+      st = statSync(explicitPath);
+    } catch {
+      st = null;
+    }
+    targetEntry = {
+      conversationId: requestedConvId || '',
+      surface: 'antigravity-cli',
+      transcriptPath: explicitPath,
+      mtimeMs: st?.mtimeMs || 0,
+      size: st?.size || 0,
+      updatedAt: st ? st.mtime.toISOString() : new Date().toISOString(),
+    };
+  } else if (requestedConvId) {
+    // A requested conversation without a local transcript still gets RPC data;
+    // it never falls back to another conversation's transcript.
+    targetEntry = !includeRecent
+      ? findTranscriptById(requestedConvId)
+      : localList.find((x) => x.conversationId === requestedConvId) || null;
+  } else {
+    targetEntry = localList.find((x) => x.isHostSurface) || localList[0] || null;
+  }
 
   const conversationId = requestedConvId || targetEntry?.conversationId || '';
   const transcriptData = parseTranscriptMetrics(targetEntry?.transcriptPath, options.fallbackModel);
 
   // Attempt RPC call to LanguageServerService for millisecond-level TTFT & streamingDuration
   const rpcMeta = conversationId
-    ? await callLsRpc('GetCascadeTrajectoryGeneratorMetadata', {
-        cascadeId: conversationId,
-        includeMessages: false,
-      })
+    ? await callLsRpc(
+        'GetCascadeTrajectoryGeneratorMetadata',
+        {
+          cascadeId: conversationId,
+          includeMessages: false,
+        },
+        rpcTimeoutMs
+      )
     : null;
 
   const rpcItems = (rpcMeta?.generatorMetadata || []).filter((m) => m && m.chatModel);
@@ -530,10 +679,10 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
 
   // Compute per-turn cost using each turn's own model pricing (when requestedPricing === 'auto')
   for (const t of turns) {
-    const turnPricingKey = resolvePricingProfileKey(
-      `${t.model || ''} ${t.modelId || ''}`,
-      requestedPricing
-    );
+    const hasConcreteDisplay = Boolean(t.model && t.model !== 'Gemini');
+    const includeId = t.modelId && (!hasConcreteDisplay || !/-worker\b/i.test(t.modelId));
+    const pricingLookup = includeId ? `${t.model || ''} ${t.modelId}` : t.model || '';
+    const turnPricingKey = resolvePricingProfileKey(pricingLookup, requestedPricing);
     const turnProfile = PRICING_PROFILES[turnPricingKey] || PRICING_PROFILES.gemini_3_1_pro;
     t.pricingProfileKey = turnPricingKey;
     t.pricingProfileLabel = turnProfile.shortLabel;
@@ -733,7 +882,17 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
   const contextUsedPct = maxContext > 0 ? (contextUsed / maxContext) * 100 : 0;
   const compactionUsedPct = compactionMaxContext > 0 ? (contextUsed / compactionMaxContext) * 100 : 0;
 
+  const summaryCheckpointCount = Math.max(transcriptData.checkpointCount || 0, maxRpcCheckpointIndex);
+  const lastStep = lastTurn
+    ? `${lastTurn.stepIndex}:${lastTurn.totalInput}:${lastTurn.outTokens}:${lastTurn.e2eSec}`
+    : '0';
+  const topRecent = localList[0]
+    ? `${localList[0].conversationId}:${Math.trunc(localList[0].mtimeMs)}`
+    : '';
+  const etag = `v1:${conversationId}:${requestedPricing || 'auto'}:${pricingProfileKey}:${Math.trunc(targetEntry?.mtimeMs || 0)}:${targetEntry?.size || 0}:${rpcItems.length}:${summaryCheckpointCount}:${turns.length}:${lastStep}:${topRecent}`;
+
   return {
+    etag,
     conversationId,
     surface: targetEntry?.surface || 'antigravity',
     updatedAt: targetEntry?.updatedAt || new Date().toISOString(),
@@ -744,7 +903,7 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
     summary: {
       turnCount: turns.length,
       modelCount: modelStats.length,
-      checkpointCount: Math.max(transcriptData.checkpointCount || 0, maxRpcCheckpointIndex),
+      checkpointCount: summaryCheckpointCount,
       contextUsed,
       maxContext,
       contextUsedPct,
@@ -804,10 +963,105 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
     modelStats,
     tokenBreakdown: latestTokenBreakdown,
     turns,
-    recentConversations: localList.slice(0, 20).map((item) => ({
-      conversationId: item.conversationId,
-      surface: item.surface,
-      updatedAt: item.updatedAt,
-    })),
+    recentConversations: includeRecent
+      ? localList.slice(0, 20).map((item) => ({
+          conversationId: item.conversationId,
+          surface: item.surface,
+          updatedAt: item.updatedAt,
+        }))
+      : [],
   };
+}
+
+function fmtCompactCount(n) {
+  const v = Number(n || 0);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+  return `${Math.trunc(v)}`;
+}
+
+function fmtCostUsd(n) {
+  const v = Number(n || 0);
+  if (v >= 1) return `$${v.toFixed(2)}`;
+  if (v >= 0.01) return `$${v.toFixed(3)}`;
+  return `$${v.toFixed(4)}`;
+}
+
+function formatMetricsSummaryText(m) {
+  const s = m.summary || {};
+  const lines = [
+    `Conversation: ${m.conversationId || 'unknown'} (${m.surface || 'antigravity'} · ${m.rpcConnected ? 'RPC' : 'Transcript'})`,
+    `Model: ${m.model} (${s.pricingProfileLabel || s.pricingProfileKey})`,
+    `Turns: ${s.turnCount || 0} (Compactions: ${s.checkpointCount || 0})`,
+    `Context: ${fmtCompactCount(s.contextUsed)} / ${fmtCompactCount(s.compactionMaxContext)} (${Number(s.compactionUsedPct || 0).toFixed(1)}% of compaction limit; ${Number(s.contextUsedPct || 0).toFixed(1)}% of ${fmtCompactCount(s.maxContext)} window)`,
+    `Prompt Cache: ${Number(s.lastCacheHitRate || 0).toFixed(1)}% last turn · ${Number(s.sessionCacheHitRate || 0).toFixed(1)}% session avg (saved ${fmtCostUsd(s.savedByCacheUsd)})`,
+    `Session Tokens: ${fmtCompactCount(s.sessionTotalTokens)} total (${fmtCompactCount(s.totalInputTokens)} in / ${fmtCompactCount(s.totalOutTokens)} out)`,
+    `API List Cost: ${fmtCostUsd(s.totalCostUsd)} (last turn ${fmtCostUsd(s.lastTurnCostUsd)})`,
+  ];
+  const tpsParts = [];
+  if (s.avgE2eTps > 0) tpsParts.push(`E2E ${Number(s.avgE2eTps).toFixed(1)} tok/s`);
+  if (s.avgDecodeTps > 0) tpsParts.push(`Decode ${Number(s.avgDecodeTps).toFixed(1)} tok/s`);
+  if (s.avgTtftSec > 0) tpsParts.push(`Avg TTFT ${Number(s.avgTtftSec).toFixed(2)}s`);
+  lines.push(`Speed: ${tpsParts.length ? tpsParts.join(' · ') : '--'}`);
+  if (Array.isArray(m.modelStats) && m.modelStats.length > 1) {
+    lines.push('By Model:');
+    for (const ms of m.modelStats) {
+      lines.push(
+        `  - ${ms.model}: ${ms.turnCount} turns, ${fmtCompactCount(ms.totalTokens)} tok, ${fmtCostUsd(ms.costUsd)} (${Number(ms.costSharePct || 0).toFixed(0)}%)`
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
+function parseMetricsCliArgs(argv) {
+  const opts = { transcriptPath: '', convId: '', pricing: 'auto', json: false, help: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--transcript' || a === '-t') {
+      if (!argv[i + 1]) throw new Error(`${a} requires a path.`);
+      opts.transcriptPath = resolve(argv[++i]);
+    } else if (a === '--conversation' || a === '--conv' || a === '-c') {
+      if (!argv[i + 1]) throw new Error(`${a} requires an ID.`);
+      opts.convId = argv[++i];
+    } else if (a === '--pricing' || a === '-p') {
+      if (!argv[i + 1]) throw new Error(`${a} requires a pricing key.`);
+      opts.pricing = argv[++i];
+    } else if (a === '--json') {
+      opts.json = true;
+    } else if (a === '--help' || a === '-h') {
+      opts.help = true;
+    } else if (!a.startsWith('-') && !opts.convId) {
+      opts.convId = a;
+    } else {
+      throw new Error(`Unknown option: ${a}`);
+    }
+  }
+  if (!opts.convId && !opts.transcriptPath && !process.env.AGY_GEMINI_ROOT) {
+    opts.convId = process.env.ANTIGRAVITY_CONVERSATION_ID || '';
+  }
+  return opts;
+}
+
+const isMain =
+  process.argv[1] && realPath(process.argv[1]) === realPath(fileURLToPath(import.meta.url));
+if (isMain) {
+  try {
+    const opts = parseMetricsCliArgs(process.argv.slice(2));
+    if (opts.help) {
+      console.log(
+        'Usage: node metrics.mjs [--transcript <path>] [--conversation <id>] [--pricing <key>] [--json]'
+      );
+      process.exit(0);
+    }
+    const metrics = await getConversationMetrics(opts.convId, opts.pricing, {
+      transcriptPath: opts.transcriptPath,
+      includeRecent: false,
+      rpcTimeoutMs: 800,
+    });
+    console.log(opts.json ? JSON.stringify(metrics, null, 2) : formatMetricsSummaryText(metrics));
+  } catch (err) {
+    console.error(`[context-monitor] ${err.message}`);
+    process.exit(1);
+  }
 }

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
@@ -30,6 +30,10 @@ describe('Pricing & Cost Engine', () => {
       'gemini-4-argon': 'gemini_4_argon',
       'Gemini 4 Carbon (Medium)': 'gemini_4_argon',
       'gemini-4-carbon': 'gemini_4_argon',
+      'Gemini 4 Hydrogen (Orchestrator)': 'gemini_4_hydrogen',
+      'gemini-4-hydrogen': 'gemini_4_hydrogen',
+      'Gemini 4 Hydrogen (Orchestrator) gemini-flash-worker-agy': 'gemini_4_hydrogen',
+      'Orchestrator (Carbon) gemini-flash-worker-agy': 'gemini_4_argon',
       'Gemini 3.1 Pro (High)': 'gemini_3_1_pro',
       'Gemini 2.5 Pro': 'gemini_pro',
       'Gemini 3.8 Flash': 'gemini_3_6_flash',
@@ -114,6 +118,11 @@ describe('Pricing & Cost Engine', () => {
     assert.equal(sonnet.isHighTier, false);
     // 0.05M * $3 + 0.20M * $0.3 + 0.01M * $15 = $0.15 + $0.06 + $0.15
     assert.ok(Math.abs(sonnet.costUsd - 0.36) < 1e-9);
+
+    const hydrogen = computeTurnCost(turn(null), PRICING_PROFILES.gemini_4_hydrogen);
+    assert.equal(hydrogen.isHighTier, false);
+    // 0.05M * $1.50 + 0.20M * $0.075 + 0.01M * $7.50 = $0.075 + $0.015 + $0.075 = $0.165
+    assert.ok(Math.abs(hydrogen.costUsd - 0.165) < 1e-9);
   });
 
   it('parses duration strings in ms and s', () => {
@@ -740,11 +749,23 @@ describe('CLI StatusLine Renderer (statusline.mjs)', () => {
       model: 'Gemini 4 Argon',
       effort: 'max',
     });
+    assert.deepEqual(splitModelAndEffort('Orchestrator (Carbon)', 'medium'), {
+      model: 'Orchestrator (Carbon)',
+      effort: 'medium',
+    });
+    assert.deepEqual(splitModelAndEffort('Orchestrator (Carbon)'), {
+      model: 'Orchestrator (Carbon)',
+      effort: '',
+    });
   });
 
-  it('resolves git branch from vcs payload, .git directory, and worktree .git file', () => {
+  it('resolves git branch from vcs payload, worktree payload, .git directory, and worktree .git file', () => {
     assert.deepEqual(resolveGitBranch({ vcs: { branch: 'feat/pulse', dirty: true } }), {
       branch: 'feat/pulse',
+      dirty: true,
+    });
+    assert.deepEqual(resolveGitBranch({ worktree: { branch: 'wt-feature', dirty: true } }), {
+      branch: 'wt-feature',
       dirty: true,
     });
 
@@ -914,6 +935,87 @@ describe('CLI StatusLine Renderer (statusline.mjs)', () => {
       assert.equal(silent.code, 0);
       assert.equal(silent.stdout, '');
     } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('expands tilde transcript_path in statusline and supports cached metrics + read-only CLI summary', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-metrics-cli-'));
+    const prevHome = process.env.HOME;
+    const prevRoot = process.env.AGY_GEMINI_ROOT;
+    try {
+      const convDir = join(tmp, 'antigravity', 'brain', 'conv-cache-cli', '.system_generated', 'logs');
+      mkdirSync(convDir, { recursive: true });
+      const tPath = join(convDir, 'transcript.jsonl');
+      const turn1 = JSON.stringify({
+        step_index: 1,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T09:00:00Z',
+        input_tokens: 10000,
+        cache_read_tokens: 40000,
+        output_tokens: 500,
+      });
+      const gen1 = JSON.stringify({
+        step_index: 2,
+        type: 'GENERIC',
+        created_at: '2026-10-16T09:00:05Z',
+      });
+      writeFileSync(tPath, `${turn1}\n${gen1}\n`, 'utf-8');
+
+      process.env.HOME = tmp;
+      const tildePath = '~/antigravity/brain/conv-cache-cli/.system_generated/logs/transcript.jsonl';
+      const statusOut = await formatStatusLine(
+        {
+          conversation_id: 'conv-cache-cli',
+          transcript_path: tildePath,
+          model: { display_name: 'Orchestrator (Carbon)' },
+        },
+        { cwd: tmp }
+      );
+      assert.match(stripAnsi(statusOut), /^Orchestrator \(Carbon\) │ Turns: 1/);
+
+      process.env.AGY_GEMINI_ROOT = tmp;
+      const first = await getConversationMetrics('conv-cache-cli', 'auto', { includeRecent: false });
+      const second = await getConversationMetrics('conv-cache-cli', 'auto', { includeRecent: false });
+      assert.deepEqual(first.recentConversations, []);
+      assert.equal(typeof first.etag, 'string');
+      assert.equal(first.etag, second.etag);
+
+      const turn2 = JSON.stringify({
+        step_index: 3,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-10-16T09:00:10Z',
+        input_tokens: 12000,
+        cache_read_tokens: 48000,
+        output_tokens: 600,
+      });
+      writeFileSync(tPath, `${turn1}\n${gen1}\n${turn2}\n`, 'utf-8');
+
+      const third = await getConversationMetrics('conv-cache-cli', 'auto', { includeRecent: false });
+      assert.equal(third.summary.turnCount, 2);
+      assert.notEqual(third.etag, first.etag);
+
+      const metricsScript = fileURLToPath(new URL('../sidecars/context-monitor/metrics.mjs', import.meta.url));
+      const textOut = execFileSync(process.execPath, [metricsScript, '--transcript', tPath], {
+        encoding: 'utf-8',
+      });
+      assert.match(textOut, /Turns: 2/);
+      assert.match(textOut, /Prompt Cache: 80\.0% last turn/);
+
+      const jsonOut = JSON.parse(
+        execFileSync(
+          process.execPath,
+          [metricsScript, '--transcript', tPath, '--conversation', 'conv-cache-cli', '--json'],
+          { encoding: 'utf-8' }
+        )
+      );
+      assert.equal(jsonOut.summary.turnCount, 2);
+      assert.equal(jsonOut.etag, third.etag);
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevRoot === undefined) delete process.env.AGY_GEMINI_ROOT;
+      else process.env.AGY_GEMINI_ROOT = prevRoot;
       rmSync(tmp, { recursive: true, force: true });
     }
   });

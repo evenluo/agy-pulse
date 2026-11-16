@@ -53,12 +53,12 @@ node install.mjs --help
 ## Usage
 
 1. Restart Antigravity (or open a new window) after the first install so it discovers the sidecar.
-2. Open the auxiliary pane and select **Context & TPS**. You can also ask the agent to "open the Context & TPS monitor"; with the plugin bundle, the agent replies with a `[Context & TPS](sidecar://...)` link.
+2. Open the auxiliary pane and select **Context & TPS**. Inside Antigravity, the panel automatically binds to the active conversation via `window.sidecar` and adapts to both light and dark host themes. You can also ask the agent to "open the Context & TPS monitor" (for a `[Context & TPS](sidecar://...)` link) or inspect metrics directly via `node sidecars/context-monitor/metrics.mjs --transcript <path>`.
 3. Use the header controls to follow the latest conversation or pick another one, to change the pricing profile, and to switch between English and Chinese.
 
 ## How it works
 
-Antigravity starts `sidecars/context-monitor/server.mjs` from `sidecar.json`. The server listens on `127.0.0.1` and serves the panel and a JSON endpoint, `/api/metrics`. The panel polls that endpoint every 2 seconds while it is visible.
+Antigravity starts `sidecars/context-monitor/server.mjs` from `sidecar.json`. When launched inside Antigravity with `sidecar_sdk`, it runs via `SidecarApp` and inherits the host's native `/preload.js` bridge; when started standalone (`npm start` or `npm run dev`), it falls back to its built-in zero-dependency HTTP server on `127.0.0.1` and serves a fallback `ui/preload.js`. The panel polls `/api/metrics` every 2 seconds while visible using lightweight `etag` change detection so idle refreshes do not re-render the UI.
 
 Metrics come from two sources:
 
@@ -80,7 +80,7 @@ When both are available, RPC values win and the transcript fills gaps.
 | E2E TPS | Output tokens ÷ (TTFT + streaming time). This is the speed you perceive. |
 | Decode TPS | Output tokens ÷ streaming time. Turns with less than 0.15 s of streaming are skipped as buffered. |
 | Session averages | Total tokens ÷ total seconds over valid turns, so short turns do not skew the result. Interrupted turns (followed by `ERROR_MESSAGE`) are excluded. |
-| Cost | Per turn, with that turn's model: uncached input, cached input, cache writes, and output at list price. For Gemini 3.1 Pro and 2.5 Pro, a turn whose input exceeds 200k uses the high tier. Gemini 4 Argon / Carbon and Claude 4.6 or later have no such tier; Argon / Carbon's price doubles for turns from 2026-12-01, and Gemini 3.6–3.8 Flash's from 2027-01-01. "Saved by cache" compares net session cost against all input billed as uncached. |
+| Cost | Per turn, with that turn's model: uncached input, cached input, cache writes, and output at list price. For Gemini 3.1 Pro and 2.5 Pro, a turn whose input exceeds 200k uses the high tier. Gemini 4 (Argon, Carbon, Hydrogen) and Claude 4.6 or later have no such tier; Argon / Carbon's price doubles for turns from 2026-12-01, and Gemini 3.6–3.8 Flash's from 2027-01-01. "Saved by cache" compares net session cost against all input billed as uncached. |
 
 Prices live in [`sidecars/context-monitor/pricing.mjs`](sidecars/context-monitor/pricing.mjs). Model names map to a profile by family and version (for example `Claude Sonnet 5.5 (Thinking)`, `claude-opus-4-6`, `gemini-3.8-flash`). Unknown Claude versions use the Sonnet 4.6 or Opus 4.6–5 profile, unknown Flash versions use Gemini 2.5 Flash, and other names use Gemini 3.1 Pro. You can override the mapping from the pricing selector.
 
