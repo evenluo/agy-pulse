@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-16
+
+Upgrading from 0.3.0: rerun `node install.mjs` and restart Antigravity (or open a new window) so it picks up the updated `sidecar.json`.
+
 ### Added
 
 - Pricing profile for Gemini 4 Hydrogen (`$1.50` / `$0.075` cached / `$7.50` per 1M tokens) in `pricing.mjs` and the UI pricing selector.
@@ -16,6 +20,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Removed `--watch` from production `sidecar.json` args (added `npm run dev` for local watch mode) and added `agent_permissions.allows_user_interactions: false`.
 - Updated `skills/context-monitor/SKILL.md` to use read-only CLI inspection, `sidecar://` pills, and `customization://<dir>` links instead of calling restricted `JetboxWriteState` or editing `config.json` from agent subprocesses.
 - Excluded `docs/` screenshots from `--plugin` installs in `install.mjs` and skipped non-effort parenthetical model suffixes (such as `Orchestrator (Carbon)`) when splitting effort levels.
+- Labeled session-pooled average speed in multi-model conversations (`modelCount > 1`) as `avg · N models` (`均值 · N 模型`, with per-model speeds on hover) in the panel and `Avg(Nm)` in `statusline.mjs`.
 
 ### Fixed
 
@@ -98,7 +103,8 @@ First release under the name agy-pulse. Upgrading from 0.1.0:
 
 - Initial release. Its commit message calls it v1.0.0; it was renumbered before any tag was published.
 
-[Unreleased]: https://github.com/evenluo/agy-pulse/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/evenluo/agy-pulse/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/evenluo/agy-pulse/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/evenluo/agy-pulse/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/evenluo/agy-pulse/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/evenluo/agy-pulse/releases/tag/v0.1.0
