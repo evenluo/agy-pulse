@@ -191,6 +191,7 @@ export async function formatStatusLine(data, options = {}) {
   const cur = cw.current_usage && typeof cw.current_usage === 'object' ? cw.current_usage : {};
   const summary = metrics?.summary || {};
   const turnCount = Number(summary.turnCount || 0);
+  const modelCount = Number(summary.modelCount || 0);
   const checkpointCount = Number(summary.checkpointCount || 0);
 
   // Last request's prompt; input_tokens excludes cache reads and cache writes.
@@ -269,7 +270,8 @@ export async function formatStatusLine(data, options = {}) {
     const costStr = cost >= 1.0 ? `$${cost.toFixed(2)}` : `$${cost.toFixed(3)}`;
     parts.push(`ΣTok: ${fmtCompact(summary.sessionTotalTokens)} ${GREEN}(${costStr})${RESET}`);
   }
-  parts.push(`Avg: ${MAGENTA}${tpsStr}${RESET}`);
+  const avgLabel = modelCount > 1 ? `Avg(${modelCount}m)` : 'Avg';
+  parts.push(`${avgLabel}: ${MAGENTA}${tpsStr}${RESET}`);
 
   return parts.join(` ${DIM}│${RESET} `);
 }

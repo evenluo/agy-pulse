@@ -44,6 +44,7 @@ describe('Offline UI & HTTP Server', () => {
     assert.doesNotMatch(HTML_PAGE, /@import|url\(\s*["']?https?:/i);
     assert.ok(HTML_PAGE.includes('id="langToggle"'));
     assert.ok(HTML_PAGE.includes('const I18N ='));
+    assert.ok(HTML_PAGE.includes('modeMulti'));
     assert.ok(HTML_PAGE.includes('dataset.theme'));
     assert.ok(HTML_PAGE.includes('window.sidecar'));
     const preload = readUi('preload.js');

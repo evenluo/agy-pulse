@@ -415,6 +415,7 @@
         speedTitle: "速度",
         modeE2e: "均值 · 含等待",
         modeDec: "均值 · 仅解码",
+        modeMulti: "均值 · {n} 模型",
         decode: "解码 {n}",
         visible: "正文 {n}",
         lastMeasured: "最近测速 {n} tok/s",
@@ -493,6 +494,7 @@
         speedTitle: "Speed",
         modeE2e: "avg · incl. wait",
         modeDec: "avg · decode only",
+        modeMulti: "avg · {n} models",
         decode: "decode {n}",
         visible: "response {n}",
         lastMeasured: "last measured {n} tok/s",
@@ -828,8 +830,19 @@
       const lastE2e = Number(s.lastE2eTps || 0);
       const lastDec = Number(s.lastDecodeTps || 0);
       const primaryTps = avgE2e > 0 ? avgE2e : avgDec;
-      document.getElementById("tpsModeLabel").textContent =
-        avgE2e === 0 && avgDec > 0 ? tr("modeDec") : tr("modeE2e");
+      const baseModeLabel = avgE2e === 0 && avgDec > 0 ? tr("modeDec") : tr("modeE2e");
+      const tpsModeEl = document.getElementById("tpsModeLabel");
+      if (s.modelCount > 1) {
+        tpsModeEl.textContent = tr("modeMulti", { n: s.modelCount });
+        const perModelTps = (data.modelStats || []).map(function(m) {
+          const mtps = m.avgE2eTps > 0 ? m.avgE2eTps : m.avgDecodeTps;
+          return shortModel(m.model || m.modelId) + " " + (mtps > 0 ? mtps.toFixed(1) + " tok/s" : "--");
+        }).join(" · ");
+        tpsModeEl.title = perModelTps ? (baseModeLabel + " (" + perModelTps + ")") : baseModeLabel;
+      } else {
+        tpsModeEl.textContent = baseModeLabel;
+        tpsModeEl.title = "";
+      }
       document.getElementById("mainTps").textContent = primaryTps > 0 ? primaryTps.toFixed(1) + " tok/s" : "-- tok/s";
       const subParts = [];
       if (avgE2e > 0 && avgDec > 0) subParts.push(tr("decode", { n: avgDec.toFixed(1) }));

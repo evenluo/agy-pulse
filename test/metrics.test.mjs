@@ -1019,4 +1019,53 @@ describe('CLI StatusLine Renderer (statusline.mjs)', () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it('labels pooled average speed as Avg(Nm) when multiple models are used in one session', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'agy-statusline-multimodel-'));
+    try {
+      const tPath = join(tmp, 'transcript.jsonl');
+      const switchModel = (step, from, to) =>
+        JSON.stringify({
+          step_index: step,
+          type: 'USER_INPUT',
+          content: `<USER_SETTINGS_CHANGE>\nThe user changed setting \`Model Selection\` from ${from} to ${to}.\n</USER_SETTINGS_CHANGE>`,
+        });
+      const planner = (step, at, out) =>
+        JSON.stringify({
+          step_index: step,
+          type: 'PLANNER_RESPONSE',
+          created_at: at,
+          input_tokens: 5000,
+          cache_read_tokens: 20000,
+          output_tokens: out,
+        });
+      const generic = (step, at) => JSON.stringify({ step_index: step, type: 'GENERIC', created_at: at });
+      const lines = [
+        switchModel(0, 'None', 'Gemini 3.8 Flash'),
+        // Flash turn: 720 tokens in 4s = 180 tok/s
+        planner(1, '2026-10-16T10:00:00Z', 720),
+        generic(2, '2026-10-16T10:00:04Z'),
+        switchModel(3, 'Gemini 3.8 Flash', 'Claude Opus 5.5 (Thinking)'),
+        // Opus turn: 720 tokens in 12s = 60 tok/s; pooled = 1440 / 16 = 90 tok/s
+        planner(4, '2026-10-16T10:01:00Z', 720),
+        generic(5, '2026-10-16T10:01:12Z'),
+      ];
+      writeFileSync(tPath, lines.join('\n') + '\n', 'utf-8');
+
+      const out = await formatStatusLine({
+        conversation_id: 'conv-statusline-multimodel',
+        transcript_path: pathToFileURL(tPath).href,
+        model: { display_name: 'Claude Opus 5.5 (Thinking)' },
+        context_window: {
+          current_usage: { input_tokens: 5000, cache_read_input_tokens: 20000, output_tokens: 720 },
+          context_window_size: 1048576,
+        },
+      });
+      const plain = stripAnsi(out);
+      assert.match(plain, /Turns: 2 \(Compact: 0\)/);
+      assert.match(plain, /Avg\(2m\): ~90 tok\/s$/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
