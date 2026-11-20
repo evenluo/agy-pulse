@@ -47,6 +47,8 @@ describe('Offline UI & HTTP Server', () => {
     assert.ok(HTML_PAGE.includes('modeMulti'));
     assert.ok(HTML_PAGE.includes('dataset.theme'));
     assert.ok(HTML_PAGE.includes('window.sidecar'));
+    assert.ok(HTML_PAGE.includes('value="gemini_4_neon"'));
+    assert.ok(HTML_PAGE.includes('MODEL_PLACEHOLDER_'));
     const preload = readUi('preload.js');
     assert.ok(preload.includes('theme-change'));
     assert.ok(preload.includes('window.sidecar'));

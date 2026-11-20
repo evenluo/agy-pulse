@@ -16,7 +16,7 @@ export function fmtCompact(n) {
   return `${Math.trunc(v)}`;
 }
 
-const EFFORT_RE = /^(?:minimal|low|medium|med|high|max|xhigh|thinking|fast|standard|none|auto)$/i;
+const EFFORT_RE = /^(?:minimal|low|medium|med|high|max|xhigh|extra(?:\s+high)?|thinking|fast|standard|none|auto)$/i;
 
 export function splitModelAndEffort(rawModel, explicitEffort = '') {
   let s = String(rawModel || '').trim();

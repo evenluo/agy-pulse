@@ -215,6 +215,7 @@
       <select id="pricingSelect" data-i18n-title="pricingSelectTitle" class="max-w-[175px] truncate">
         <option value="auto" data-i18n="priceAuto">计价：按模型自动</option>
         <option value="gemini_4_argon">Gemini 4 Argon / Carbon ($2/$10 → $4/$20)</option>
+        <option value="gemini_4_neon">Gemini 4 Neon ($3/$15)</option>
         <option value="gemini_4_hydrogen">Gemini 4 Hydrogen ($1.50/$7.50)</option>
         <option value="gemini_3_1_pro">Gemini 3.1 Pro ($2/$12)</option>
         <option value="gemini_pro">Gemini 2.5 Pro ($1.25/$10)</option>
@@ -658,7 +659,7 @@
         return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c];
       });
     }
-    const EFFORT_TAIL_RE = /\s*\((?:minimal|low|medium|med|high|max|xhigh|thinking|fast|standard|none|auto)\)\s*$/i;
+    const EFFORT_TAIL_RE = /\s*\((?:minimal|low|medium|med|high|max|xhigh|extra(?:\s+high)?|thinking|fast|standard|none|auto)\)\s*$/i;
     function shortModel(m) {
       const s = String(m || "Gemini").trim().replace(/^models\//, "");
       return s.replace(EFFORT_TAIL_RE, "").trim() || s;
@@ -725,7 +726,7 @@
         return "<div><span class=\"muted\">" + label + " </span>" + value + "</div>";
       };
       container.innerHTML = models.map(function(m) {
-        const showRawId = m.modelId && m.modelId !== m.model;
+        const showRawId = m.modelId && m.modelId !== m.model && !/^MODEL_PLACEHOLDER_/i.test(m.modelId);
         const hiTag = m.highTierTurnCount > 0
           ? ("<span class=\"px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 text-[10px]\" title=\"" + esc(tr("highTierTitle")) + "\">" + tr("highTierTurns", { n: m.highTierTurnCount }) + "</span>")
           : "";

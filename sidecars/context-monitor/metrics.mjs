@@ -16,6 +16,11 @@ import { PRICING_PROFILES, computeTurnCost, resolvePricingProfileKey } from './p
 const APP_DIRS = ['antigravity', 'antigravity-ide', 'antigravity-cli'];
 const TRANSCRIPT_CACHE_MAX = 64;
 const transcriptCache = new Map();
+const PLACEHOLDER_MODEL_ID_RE = /^MODEL_PLACEHOLDER_/i;
+
+function isOpaquePlaceholderModelId(id) {
+  return PLACEHOLDER_MODEL_ID_RE.test(String(id || '').trim());
+}
 
 function realPath(p) {
   return existsSync(p) ? realpathSync(p) : resolve(p);
@@ -677,6 +682,30 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
     }
   }
 
+  // Collapse placeholder (MODEL_PLACEHOLDER_*) and display-only modelIds onto a
+  // single concrete backend ID seen for the same display name in this session.
+  const concreteIdsByModel = new Map();
+  for (const t of turns) {
+    const modelName = String(t.model || '').trim();
+    const modelId = String(t.modelId || '').trim();
+    if (!modelName || modelName === 'Gemini') continue;
+    if (!modelId || modelId === modelName || isOpaquePlaceholderModelId(modelId)) continue;
+    if (!concreteIdsByModel.has(modelName)) concreteIdsByModel.set(modelName, new Set());
+    concreteIdsByModel.get(modelName).add(modelId);
+  }
+  for (const t of turns) {
+    const modelName = String(t.model || '').trim();
+    const modelId = String(t.modelId || '').trim();
+    const concreteIds = concreteIdsByModel.get(modelName);
+    if (
+      concreteIds &&
+      concreteIds.size === 1 &&
+      (!modelId || modelId === modelName || isOpaquePlaceholderModelId(modelId))
+    ) {
+      t.modelId = concreteIds.values().next().value;
+    }
+  }
+
   // Compute per-turn cost using each turn's own model pricing (when requestedPricing === 'auto')
   for (const t of turns) {
     const hasConcreteDisplay = Boolean(t.model && t.model !== 'Gemini');
@@ -690,7 +719,9 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
     Object.assign(t, computeTurnCost(t, turnProfile));
   }
 
-  const pricingProfileKey = resolvePricingProfileKey(activeModel, requestedPricing);
+  const lastTurn = turns[turns.length - 1] || null;
+  const pricingProfileKey =
+    lastTurn?.pricingProfileKey || resolvePricingProfileKey(activeModel, requestedPricing);
   const pricingProfile = PRICING_PROFILES[pricingProfileKey] || PRICING_PROFILES.gemini_3_1_pro;
 
   // Time-weighted session TPS and stall classification
@@ -702,7 +733,6 @@ export async function getConversationMetrics(requestedConvId, requestedPricing, 
   }
   const ttftTurns = turns.filter((t) => !t.interrupted && t.ttftSec > 0);
 
-  const lastTurn = turns[turns.length - 1] || null;
   const currentTurn = [...turns].reverse().find((t) => t.contextUsed > 0) || lastTurn;
   const lastPerfTurn =
     [...turns].reverse().find((t) => !t.interrupted && (validE2eSet.has(t) || t.decodeTps > 0)) ||

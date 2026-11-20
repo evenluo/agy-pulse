@@ -30,6 +30,15 @@ describe('Pricing & Cost Engine', () => {
       'gemini-4-argon': 'gemini_4_argon',
       'Gemini 4 Carbon (Medium)': 'gemini_4_argon',
       'gemini-4-carbon': 'gemini_4_argon',
+      'Gemini 4 Neon (High)': 'gemini_4_neon',
+      'Gemini 4 Neon (Extra High)': 'gemini_4_neon',
+      'gemini-4-neon': 'gemini_4_neon',
+      'gemini-4-neon-xhigh': 'gemini_4_neon',
+      'Orchestrator (Neon)': 'gemini_4_neon',
+      'Orchestrator (Neon) gemini-pro-orchestrator-neon': 'gemini_4_neon',
+      'Orchestrator (Neon) MODEL_PLACEHOLDER_M537': 'gemini_4_neon',
+      'gemini-pro-orchestrator-neon': 'gemini_4_neon',
+      'Orchestrator (Neon) gemini-flash-worker-agy': 'gemini_4_neon',
       'Gemini 4 Hydrogen (Orchestrator)': 'gemini_4_hydrogen',
       'gemini-4-hydrogen': 'gemini_4_hydrogen',
       'Gemini 4 Hydrogen (Orchestrator) gemini-flash-worker-agy': 'gemini_4_hydrogen',
@@ -123,6 +132,11 @@ describe('Pricing & Cost Engine', () => {
     assert.equal(hydrogen.isHighTier, false);
     // 0.05M * $1.50 + 0.20M * $0.075 + 0.01M * $7.50 = $0.075 + $0.015 + $0.075 = $0.165
     assert.ok(Math.abs(hydrogen.costUsd - 0.165) < 1e-9);
+
+    const neon = computeTurnCost(turn(null), PRICING_PROFILES.gemini_4_neon);
+    assert.equal(neon.isHighTier, false);
+    // 0.05M * $3.00 + 0.20M * $0.15 + 0.01M * $15.00 = $0.15 + $0.03 + $0.15 = $0.33
+    assert.ok(Math.abs(neon.costUsd - 0.33) < 1e-9);
   });
 
   it('parses duration strings in ms and s', () => {
@@ -735,6 +749,231 @@ describe('Transcript Parser & Multi-Model Aggregation', () => {
       await new Promise((r) => lsServer.close(r));
     }
   });
+
+  it('merges placeholder and display-only modelIds for Orchestrator (Neon) and prices Gemini 4 Neon without >200k tier', async () => {
+    const convDir = join(
+      tmpRoot,
+      'antigravity',
+      'brain',
+      'conv-neon-placeholder',
+      '.system_generated',
+      'logs'
+    );
+    mkdirSync(convDir, { recursive: true });
+    const lines = [
+      // Historical transcript turn before reload: display-only modelId 'Orchestrator (Neon)'
+      JSON.stringify({
+        step_index: 0,
+        type: 'USER_INPUT',
+        content:
+          '<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Orchestrator (Neon).\n</USER_SETTINGS_CHANGE>',
+      }),
+      JSON.stringify({
+        step_index: 1,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-11-20T09:00:00Z',
+        input_tokens: 10000,
+        cache_read_tokens: 40000,
+        output_tokens: 500,
+      }),
+      JSON.stringify({ step_index: 2, type: 'GENERIC', created_at: '2026-11-20T09:00:05Z' }),
+      // RPC turns: step 3 & 5 (Neon), step 4 (Hydrogen), step 6 (in-flight/empty Neon with MODEL_PLACEHOLDER_M537)
+      JSON.stringify({
+        step_index: 3,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-11-20T09:01:00Z',
+        input_tokens: 50000,
+        cache_read_tokens: 200000,
+        output_tokens: 10000,
+      }),
+      JSON.stringify({ step_index: 4, type: 'PLANNER_RESPONSE', created_at: '2026-11-20T09:02:00Z' }),
+      JSON.stringify({ step_index: 5, type: 'PLANNER_RESPONSE', created_at: '2026-11-20T09:03:00Z' }),
+      JSON.stringify({ step_index: 6, type: 'PLANNER_RESPONSE', created_at: '2026-11-20T09:04:00Z' }),
+    ];
+    writeFileSync(join(convDir, 'transcript.jsonl'), lines.join('\n') + '\n', 'utf-8');
+
+    const lsServer = createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          generatorMetadata: [
+            {
+              stepIndices: [3],
+              chatModel: {
+                model: 'MODEL_PLACEHOLDER_M537',
+                modelDisplayName: 'Orchestrator (Neon)',
+                responseModel: 'gemini-pro-orchestrator-neon',
+                timeToFirstToken: '0.8s',
+                streamingDuration: '4.2s',
+                usage: {
+                  inputTokens: 50000,
+                  cacheReadTokens: 200000,
+                  outputTokens: 10000,
+                },
+              },
+            },
+            {
+              stepIndices: [4],
+              chatModel: {
+                model: 'MODEL_PLACEHOLDER_M400',
+                modelDisplayName: 'Gemini 4 Hydrogen (Orchestrator)',
+                responseModel: 'gemini-flash-worker-agy',
+                timeToFirstToken: '0.4s',
+                streamingDuration: '2.6s',
+                usage: {
+                  inputTokens: 10000,
+                  cacheReadTokens: 90000,
+                  outputTokens: 600,
+                },
+              },
+            },
+            {
+              stepIndices: [5],
+              chatModel: {
+                model: 'MODEL_PLACEHOLDER_M537',
+                modelDisplayName: 'Orchestrator (Neon)',
+                responseModel: 'gemini-pro-orchestrator-neon',
+                timeToFirstToken: '0.6s',
+                streamingDuration: '3.4s',
+                usage: {
+                  inputTokens: 10000,
+                  cacheReadTokens: 90000,
+                  outputTokens: 800,
+                },
+              },
+            },
+            {
+              // Empty/in-flight turn with no responseModel or usage -> falls back to MODEL_PLACEHOLDER_M537
+              stepIndices: [6],
+              chatModel: {
+                model: 'MODEL_PLACEHOLDER_M537',
+                modelDisplayName: 'Orchestrator (Neon)',
+              },
+            },
+          ],
+        })
+      );
+    });
+
+    await new Promise((r) => lsServer.listen(0, '127.0.0.1', r));
+    process.env.ANTIGRAVITY_LS_ADDRESS = `127.0.0.1:${lsServer.address().port}`;
+    process.env.ANTIGRAVITY_CSRF_TOKEN = 'test-csrf';
+    try {
+      const metrics = await getConversationMetrics('conv-neon-placeholder', 'auto');
+      assert.equal(metrics.summary.turnCount, 5);
+      assert.equal(metrics.summary.modelCount, 2);
+      assert.equal(metrics.modelStats.length, 2);
+      // 250k input turn on Neon must NOT trigger >200k tier
+      assert.equal(metrics.summary.highTierTurnCount, 0);
+      assert.equal(metrics.summary.priceTierThreshold, 0);
+      assert.equal(metrics.summary.pricingProfileKey, 'gemini_4_neon');
+
+      const neonStats = metrics.modelStats.find((m) => m.model === 'Orchestrator (Neon)');
+      assert.ok(neonStats);
+      assert.equal(neonStats.modelId, 'gemini-pro-orchestrator-neon');
+      assert.equal(neonStats.pricingProfileKey, 'gemini_4_neon');
+      // Historical step 1 + RPC steps 3, 5, 6 = 4 turns merged under gemini-pro-orchestrator-neon
+      assert.equal(neonStats.turnCount, 4);
+      assert.equal(neonStats.highTierTurnCount, 0);
+
+      const hydrogenStats = metrics.modelStats.find(
+        (m) => m.model === 'Gemini 4 Hydrogen (Orchestrator)'
+      );
+      assert.ok(hydrogenStats);
+      assert.equal(hydrogenStats.modelId, 'gemini-flash-worker-agy');
+      assert.equal(hydrogenStats.pricingProfileKey, 'gemini_4_hydrogen');
+      assert.equal(hydrogenStats.turnCount, 1);
+    } finally {
+      delete process.env.ANTIGRAVITY_LS_ADDRESS;
+      delete process.env.ANTIGRAVITY_CSRF_TOKEN;
+      await new Promise((r) => lsServer.close(r));
+    }
+  });
+
+  it('keeps distinct concrete backend modelIds separate and prices placeholder-only turns by display name', async () => {
+    const convDir = join(
+      tmpRoot,
+      'antigravity',
+      'brain',
+      'conv-modelid-edge',
+      '.system_generated',
+      'logs'
+    );
+    mkdirSync(convDir, { recursive: true });
+    writeFileSync(
+      join(convDir, 'transcript.jsonl'),
+      [
+        JSON.stringify({ step_index: 1, type: 'PLANNER_RESPONSE', created_at: '2026-11-20T09:10:00Z' }),
+        JSON.stringify({ step_index: 2, type: 'PLANNER_RESPONSE', created_at: '2026-11-20T09:11:00Z' }),
+        JSON.stringify({ step_index: 3, type: 'PLANNER_RESPONSE', created_at: '2026-11-20T09:12:00Z' }),
+        JSON.stringify({ step_index: 4, type: 'PLANNER_RESPONSE', created_at: '2026-11-20T09:13:00Z' }),
+      ].join('\n') + '\n',
+      'utf-8'
+    );
+
+    const lsServer = createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          generatorMetadata: [
+            {
+              stepIndices: [1],
+              chatModel: {
+                modelDisplayName: 'Shared Display',
+                responseModel: 'backend-route-a',
+                usage: { inputTokens: 1000, cacheReadTokens: 0, outputTokens: 100 },
+              },
+            },
+            {
+              stepIndices: [2],
+              chatModel: {
+                modelDisplayName: 'Shared Display',
+                responseModel: 'backend-route-b',
+                usage: { inputTokens: 1000, cacheReadTokens: 0, outputTokens: 100 },
+              },
+            },
+            {
+              stepIndices: [3],
+              chatModel: {
+                model: 'MODEL_PLACEHOLDER_M999',
+                modelDisplayName: 'Shared Display',
+              },
+            },
+            {
+              // Only MODEL_PLACEHOLDER_M537 for this display name -> stays one group and prices via display name
+              stepIndices: [4],
+              chatModel: {
+                model: 'MODEL_PLACEHOLDER_M537',
+                modelDisplayName: 'Orchestrator (Neon)',
+                usage: { inputTokens: 50000, cacheReadTokens: 200000, outputTokens: 10000 },
+              },
+            },
+          ],
+        })
+      );
+    });
+
+    await new Promise((r) => lsServer.listen(0, '127.0.0.1', r));
+    process.env.ANTIGRAVITY_LS_ADDRESS = `127.0.0.1:${lsServer.address().port}`;
+    process.env.ANTIGRAVITY_CSRF_TOKEN = 'test-csrf';
+    try {
+      const metrics = await getConversationMetrics('conv-modelid-edge', 'auto');
+      // backend-route-a, backend-route-b, MODEL_PLACEHOLDER_M999 (not guessed), plus Orchestrator (Neon)
+      assert.equal(metrics.modelStats.length, 4);
+      assert.ok(metrics.modelStats.some((m) => m.modelId === 'backend-route-a'));
+      assert.ok(metrics.modelStats.some((m) => m.modelId === 'backend-route-b'));
+      assert.ok(metrics.modelStats.some((m) => m.modelId === 'MODEL_PLACEHOLDER_M999'));
+      const neonOnly = metrics.modelStats.find((m) => m.model === 'Orchestrator (Neon)');
+      assert.ok(neonOnly);
+      assert.equal(neonOnly.modelId, 'MODEL_PLACEHOLDER_M537');
+      assert.equal(neonOnly.pricingProfileKey, 'gemini_4_neon');
+      assert.ok(Math.abs(neonOnly.costUsd - 0.33) < 1e-9);
+    } finally {
+      delete process.env.ANTIGRAVITY_LS_ADDRESS;
+      delete process.env.ANTIGRAVITY_CSRF_TOKEN;
+      await new Promise((r) => lsServer.close(r));
+    }
+  });
 });
 
 describe('CLI StatusLine Renderer (statusline.mjs)', () => {
@@ -756,6 +995,14 @@ describe('CLI StatusLine Renderer (statusline.mjs)', () => {
     assert.deepEqual(splitModelAndEffort('Orchestrator (Carbon)'), {
       model: 'Orchestrator (Carbon)',
       effort: '',
+    });
+    assert.deepEqual(splitModelAndEffort('Orchestrator (Neon)'), {
+      model: 'Orchestrator (Neon)',
+      effort: '',
+    });
+    assert.deepEqual(splitModelAndEffort('Gemini 4 Neon (Extra High)'), {
+      model: 'Gemini 4 Neon',
+      effort: 'Extra High',
     });
   });
 

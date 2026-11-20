@@ -18,6 +18,11 @@ export const PRICING_PROFILES = {
       base: { inUncached: 4.0, inCached: 0.2, cacheWrite: 4.0, out: 20.0 },
     },
   },
+  gemini_4_neon: {
+    label: 'Gemini 4 Neon ($3/$0.15/$15)',
+    shortLabel: 'Gemini 4 Neon',
+    base: { inUncached: 3.0, inCached: 0.15, cacheWrite: 3.0, out: 15.0 },
+  },
   gemini_4_hydrogen: {
     label: 'Gemini 4 Hydrogen ($1.50/$0.075/$7.50)',
     shortLabel: 'Gemini 4 Hydrogen',
@@ -104,6 +109,7 @@ export function resolvePricingProfileKey(modelName, requestedProfile) {
     return versionOf(m, 'sonnet') === '5.5' ? 'claude_sonnet_5_5' : 'claude_sonnet';
   }
   if (m.includes('hydrogen')) return 'gemini_4_hydrogen';
+  if (m.includes('neon')) return 'gemini_4_neon';
   if (m.includes('argon') || m.includes('carbon') || m.includes('gemini 4') || m.includes('gemini-4')) {
     return 'gemini_4_argon';
   }
