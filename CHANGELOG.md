@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-20
+
+### Added
+
+- Pricing profile for Gemini 4 Neon (`$3` / `$0.15` cached / `$15` per 1M tokens, flat 1M window with no `>200k` tier) in `pricing.mjs` and the UI pricing selector (`Orchestrator (Neon)` / `gemini-pro-orchestrator-neon` / `gemini-4-neon`).
+- Recognition of `Extra High` effort suffixes in `statusline.mjs` and `ui/index.html`.
+
+### Fixed
+
+- Collapsed opaque `MODEL_PLACEHOLDER_*` (such as `MODEL_PLACEHOLDER_M537`) and display-only `modelId`s onto the single concrete backend ID seen for the same display name, so in-flight or empty RPC turns and pre-reload transcript turns no longer split into duplicate per-model cards or inflate `modelCount`.
+- Hid opaque `MODEL_PLACEHOLDER_*` raw ID badges in the panel's per-model breakdown when no concrete backend route ID has been recorded yet.
+
 ## [0.4.0] - 2026-11-16
 
 Upgrading from 0.3.0: rerun `node install.mjs` and restart Antigravity (or open a new window) so it picks up the updated `sidecar.json`.
@@ -103,7 +115,8 @@ First release under the name agy-pulse. Upgrading from 0.1.0:
 
 - Initial release. Its commit message calls it v1.0.0; it was renumbered before any tag was published.
 
-[Unreleased]: https://github.com/evenluo/agy-pulse/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/evenluo/agy-pulse/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/evenluo/agy-pulse/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/evenluo/agy-pulse/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/evenluo/agy-pulse/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/evenluo/agy-pulse/compare/v0.1.0...v0.2.0
